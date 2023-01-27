@@ -38,24 +38,22 @@ try
     RETURN_IF_FAILED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszName));
 
     {
-        wil::unique_process_information _piClient;
-        STARTUPINFOEX siEx{ 0 };
-        siEx.StartupInfo.cb = sizeof(STARTUPINFOEX);
+        auto cmd = GetIdealWtShellExecuteTarget();
+        std::wstring arg;
+        RETURN_IF_FAILED(wil::str_printf_nothrow(arg, LR"-(-d %s)-", QuoteAndEscapeCommandlineArg(pszName.get())));
 
-        std::wstring cmdline;
-        RETURN_IF_FAILED(wil::str_printf_nothrow(cmdline, LR"-("%s" -d %s)-", GetWtExePath().c_str(), QuoteAndEscapeCommandlineArg(pszName.get()).c_str()));
-        RETURN_IF_WIN32_BOOL_FALSE(CreateProcessW(
-            nullptr, // lpApplicationName
-            cmdline.data(),
-            nullptr, // lpProcessAttributes
-            nullptr, // lpThreadAttributes
-            false, // bInheritHandles
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // dwCreationFlags
-            nullptr, // lpEnvironment
-            pszName.get(),
-            &siEx.StartupInfo, // lpStartupInfo
-            &_piClient // lpProcessInformation
-            ));
+        // disable warnings from SHELLEXECUTEINFOW struct. We can't fix that.
+#pragma warning(push)
+#pragma warning(disable : 26476) // Macro uses naked union over variant.
+        SHELLEXECUTEINFOW seInfo{ 0 };
+#pragma warning(pop)
+
+        seInfo.cbSize = sizeof(seInfo);
+        seInfo.fMask = SEE_MASK_DEFAULT;
+        seInfo.lpFile = cmd.c_str();
+        seInfo.lpParameters = arg.c_str();
+        seInfo.nShow = SW_SHOWNORMAL;
+        RETURN_IF_WIN32_BOOL_FALSE(ShellExecuteExW(&seInfo));
     }
 
     return S_OK;

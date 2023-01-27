@@ -105,6 +105,64 @@ _TIL_INLINEPREFIX const std::wstring& GetWtExePath()
     return exePath;
 }
 
+_TIL_INLINEPREFIX const std::wstring& GetIdealWtShellExecuteTarget()
+{
+    static const auto target = []() -> std::wstring {
+        // #1 discover and invoke the app using the GetCurrentApplicationUserModelId
+        // api using shell:AppsFolder\package!appid
+        //    cmd:    shell:AppsFolder\WindowsTerminalDev_8wekyb3d8bbwe!App
+        //    params: new-tab -p {guid}
+        //
+        // #2 find and execute WindowsTerminal.exe
+        //    cmd:    {same path as this binary}\WindowsTerminal.exe
+        //    params: new-tab -p {guid}
+
+        // see if we're a store app we can invoke with shell:AppsFolder
+        std::wstring appUserModelId;
+        const auto result = wil::AdaptFixedSizeToAllocatedResult<std::wstring, APPLICATION_USER_MODEL_ID_MAX_LENGTH>(
+            appUserModelId, [&](PWSTR value, size_t valueLength, gsl::not_null<size_t*> valueLengthNeededWithNull) noexcept -> HRESULT {
+                UINT32 length = gsl::narrow_cast<UINT32>(valueLength);
+                const LONG rc = GetCurrentApplicationUserModelId(&length, value);
+                switch (rc)
+                {
+                case ERROR_SUCCESS:
+                    *valueLengthNeededWithNull = length;
+                    return S_OK;
+
+                case ERROR_INSUFFICIENT_BUFFER:
+                    *valueLengthNeededWithNull = length;
+                    return S_FALSE; // trigger allocation loop
+
+                case APPMODEL_ERROR_NO_APPLICATION:
+                    return E_FAIL; // we are not running as a store app
+
+                default:
+                    return E_UNEXPECTED;
+                }
+            });
+        LOG_IF_FAILED(result);
+
+        std::wstring cmd = {};
+        if (SUCCEEDED(result) && appUserModelId.length() > 0)
+        {
+            // scenario #1
+            cmd = L"shell:AppsFolder\\" + appUserModelId;
+        }
+        else
+        {
+            // scenario #2
+            // Get the path to WindowsTerminal.exe, which should live next to us.
+            std::filesystem::path module{ wil::GetModuleFileNameW<std::wstring>(nullptr) };
+            // Swap elevate-shim.exe for WindowsTerminal.exe
+            module.replace_filename(L"WindowsTerminal.exe");
+            cmd = module;
+        }
+
+        return cmd;
+    }();
+    return target;
+}
+
 // Method Description:
 // - Quotes and escapes the given string so that it can be used as a command-line arg.
 // - e.g. given `\";foo\` will return `"\\\"\;foo\\"` so that the caller can construct a command-line
