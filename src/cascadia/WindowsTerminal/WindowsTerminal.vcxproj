@@ -18,7 +18,7 @@
 
   <PropertyGroup Label="NuGet Dependencies">
     <TerminalCppWinrt>true</TerminalCppWinrt>
-    <TerminalVCRTForwarders>true</TerminalVCRTForwarders>
+    <TerminalVCRTForwarders Condition="'$(TerminalTargetWindowsVersion)'!='Win11'">true</TerminalVCRTForwarders>
     <TerminalThemeHelpers>true</TerminalThemeHelpers>
     <TerminalMUX>true</TerminalMUX>
   </PropertyGroup>
