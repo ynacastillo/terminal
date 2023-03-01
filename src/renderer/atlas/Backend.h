@@ -5,9 +5,10 @@
 
 namespace Microsoft::Console::Render::Atlas
 {
+    inline constexpr bool debugDisablePartialInvalidation = false;
     inline constexpr bool debugForceD2DMode = false;
-    inline constexpr bool debugTextParsingPerformance = false;
-    inline constexpr bool debugContinuousRedraw = false;
+    inline constexpr bool debugDisableFrameLatencyWaitableObject = false;
+    inline constexpr bool debugContinuousRedraw = true;
 
     struct SwapChainManager
     {
@@ -25,7 +26,7 @@ namespace Microsoft::Console::Render::Atlas
             {
                 _targetSize = p.s->targetSize;
                 prepareResize();
-                THROW_IF_FAILED(_swapChain->ResizeBuffers(0, _targetSize.x, _targetSize.y, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT));
+                THROW_IF_FAILED(_swapChain->ResizeBuffers(0, _targetSize.x, _targetSize.y, DXGI_FORMAT_UNKNOWN, flags));
             }
 
             // XAML's SwapChainPanel combines the worst of both worlds and applies a transform to the
@@ -110,7 +111,7 @@ namespace Microsoft::Console::Render::Atlas
             // IDXGISwapChain2::GetFrameLatencyWaitableObject returns an auto-reset event.
             // Once we've waited on the event, waiting on it again will block until the timeout elapses.
             // _waitForPresentation guards against this.
-            if constexpr (!debugContinuousRedraw)
+            if constexpr (!debugDisableFrameLatencyWaitableObject)
             {
                 if (_waitForPresentation)
                 {
@@ -147,7 +148,7 @@ namespace Microsoft::Console::Render::Atlas
             // If our background is opaque we can enable "independent" flips by setting DXGI_ALPHA_MODE_IGNORE.
             // As our swap chain won't have to compose with DWM anymore it reduces the display latency dramatically.
             desc.AlphaMode = p.s->target->enableTransparentBackground ? DXGI_ALPHA_MODE_PREMULTIPLIED : DXGI_ALPHA_MODE_IGNORE;
-            desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+            desc.Flags = flags;
 
             wil::com_ptr<IDXGISwapChain1> swapChain0;
 
@@ -185,6 +186,8 @@ namespace Microsoft::Console::Render::Atlas
                 CATCH_LOG()
             }
         }
+
+        static constexpr DXGI_SWAP_CHAIN_FLAG flags = debugDisableFrameLatencyWaitableObject ? DXGI_SWAP_CHAIN_FLAG{} : DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
         wil::com_ptr<IDXGISwapChain2> _swapChain;
         wil::unique_handle _swapChainHandle;

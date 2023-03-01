@@ -89,7 +89,7 @@ try
         _api.invalidatedRows = invalidatedRowsAll;
     }
 
-    if constexpr (debugTextParsingPerformance)
+    if constexpr (debugDisablePartialInvalidation)
     {
         _api.invalidatedRows = invalidatedRowsAll;
         _api.scrollOffset = 0;
