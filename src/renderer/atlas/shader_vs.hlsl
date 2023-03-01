@@ -3,23 +3,24 @@
 
 #include "shader_common.hlsl"
 
-cbuffer ConstBuffer : register(b0)
-{
-    float4 positionScale;
-    float4 gammaRatios;
-    float cleartypeEnhancedContrast;
-    float grayscaleEnhancedContrast;
-}
+StructuredBuffer<VSData> instances : register(t0);
 
-PSData main(VSData data)
+// clang-format off
+PSData main(uint id: SV_VertexID)
+// clang-format on
 {
+    VSData data = instances[id / 4];
+
+    float2 position;
+    position.x = (id & 1) ? 1 : 0;
+    position.y = (id & 2) ? 1 : 0;
+    
     PSData output;
-    output.position = float4(data.position.xy * data.rect.zw + data.rect.xy, 0, 1);
-    // positionScale is expected to be float4(2.0f / sizeInPixel.x, -2.0f / sizeInPixel.y, 1, 1).
-    // Together with the addition below this will transform our "position" from pixel into NCD space.
-    output.position = output.position * positionScale + float4(-1.0f, 1.0f, 0, 0);
-    output.texcoord = data.position.xy * data.tex.zw + data.tex.xy;
-    output.color = data.color;
     output.shadingType = data.shadingType;
+    output.color = decodeRGBA(data.color);
+    // positionScale is expected to be float2(2.0f / sizeInPixel.x, -2.0f / sizeInPixel.y). Together with the
+    // addition below this will transform our "position" from pixel into normalized device coordinate (NDC) space.
+    output.position = float4((position * data.position.zw + data.position.xy) * positionScale + float2(-1.0f, 1.0f), 0, 1);
+    output.texcoord = position * data.texcoord.zw + data.texcoord.xy;
     return output;
 }

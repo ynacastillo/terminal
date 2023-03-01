@@ -25,67 +25,73 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
 {
     // Our constant buffer will never get resized
     {
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = sizeof(ConstBuffer);
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        static constexpr D3D11_BUFFER_DESC desc{
+            .ByteWidth = sizeof(ConstBuffer),
+            .Usage = D3D11_USAGE_DEFAULT,
+            .BindFlags = D3D11_BIND_CONSTANT_BUFFER,
+        };
         THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _constantBuffer.put()));
     }
 
     THROW_IF_FAILED(_device->CreateVertexShader(&shader_vs[0], sizeof(shader_vs), nullptr, _vertexShader.put()));
-                THROW_IF_FAILED(_device->CreatePixelShader(&shader_ps[0], sizeof(shader_ps), nullptr, _textPixelShader.put()));
+    THROW_IF_FAILED(_device->CreatePixelShader(&shader_ps[0], sizeof(shader_ps), nullptr, _textPixelShader.put()));
 
     {
-        D3D11_BLEND_DESC1 desc{};
-        desc.RenderTarget[0] = {
-            .BlendEnable = true,
-            .SrcBlend = D3D11_BLEND_ONE,
-            .DestBlend = D3D11_BLEND_INV_SRC1_COLOR,
-            .BlendOp = D3D11_BLEND_OP_ADD,
-            .SrcBlendAlpha = D3D11_BLEND_ONE,
-            .DestBlendAlpha = D3D11_BLEND_ZERO,
-            .BlendOpAlpha = D3D11_BLEND_OP_ADD,
-            .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
+        // The final step of the ClearType blending algorithm is a lerp() between the premultiplied alpha
+        // background color and straight alpha foreground color given the 3 RGB weights in alphaCorrected:
+        //   lerp(background, foreground, weights)
+        // Which is equivalent to:
+        //   background * (1 - weights) + foreground * weights
+        //
+        // This COULD be implemented using dual source color blending like so:
+        //   .SrcBlend = D3D11_BLEND_SRC1_COLOR
+        //   .DestBlend = D3D11_BLEND_INV_SRC1_COLOR
+        //   .BlendOp = D3D11_BLEND_OP_ADD
+        // Because:
+        //   background * (1 - weights) + foreground * weights
+        //       ^             ^        ^     ^           ^
+        //      Dest     INV_SRC1_COLOR |    Src      SRC1_COLOR
+        //                            OP_ADD
+        //
+        // BUT we need simultaneous support for regular "source over" alpha blending
+        // (SHADING_TYPE_PASSTHROUGH)  like this:
+        //   background * (1 - alpha) + foreground
+        //
+        // This is why we set:
+        //   .SrcBlend = D3D11_BLEND_ONE
+        //
+        // --> We need to multiply the foreground with the weights ourselves.
+        static constexpr D3D11_BLEND_DESC1 desc{
+            .RenderTarget = { {
+                .BlendEnable = TRUE,
+                .SrcBlend = D3D11_BLEND_ONE,
+                .DestBlend = D3D11_BLEND_INV_SRC1_COLOR,
+                .BlendOp = D3D11_BLEND_OP_ADD,
+                .SrcBlendAlpha = D3D11_BLEND_ONE,
+                .DestBlendAlpha = D3D11_BLEND_ZERO,
+                .BlendOpAlpha = D3D11_BLEND_OP_ADD,
+                .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
+            } },
         };
         THROW_IF_FAILED(_device->CreateBlendState1(&desc, _textBlendState.put()));
     }
 
     {
-        D3D11_RASTERIZER_DESC desc{};
-        desc.FillMode = D3D11_FILL_SOLID;
-        desc.CullMode = D3D11_CULL_NONE;
-        THROW_IF_FAILED(_device->CreateRasterizerState(&desc, _rasterizerState.put()));
+        //static constexpr D3D11_RASTERIZER_DESC desc{
+        //    .FillMode = D3D11_FILL_SOLID,
+        //    .CullMode = D3D11_CULL_NONE,
+        //};
+        //THROW_IF_FAILED(_device->CreateRasterizerState(&desc, _rasterizerState.put()));
     }
 
     {
         static constexpr D3D11_INPUT_ELEMENT_DESC layout[]{
-            { "SV_Position", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "Rect", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, offsetof(VertexInstanceData, rect), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-            { "Tex", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, offsetof(VertexInstanceData, tex), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-            { "Color", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 1, offsetof(VertexInstanceData, color), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-            { "ShadingType", 0, DXGI_FORMAT_R32_UINT, 1, offsetof(VertexInstanceData, shadingType), D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+            { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadInstance, position), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadInstance, texcoord), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, offsetof(QuadInstance, color), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "ShadingType", 0, DXGI_FORMAT_R32_UINT, 0, offsetof(QuadInstance, shadingType), D3D11_INPUT_PER_VERTEX_DATA, 0 },
         };
         THROW_IF_FAILED(_device->CreateInputLayout(&layout[0], gsl::narrow_cast<UINT>(std::size(layout)), &shader_vs[0], sizeof(shader_vs), _textInputLayout.put()));
-    }
-
-    {
-        static constexpr f32x2 vertices[]{
-            { 0, 0 },
-            { 1, 0 },
-            { 1, 1 },
-            { 1, 1 },
-            { 0, 1 },
-            { 0, 0 },
-        };
-        static constexpr D3D11_SUBRESOURCE_DATA initialData{
-            .pSysMem = &vertices[0],
-        };
-
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = sizeof(vertices);
-        desc.Usage = D3D11_USAGE_IMMUTABLE;
-        desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-        THROW_IF_FAILED(_device->CreateBuffer(&desc, &initialData, _vertexBuffers[0].put()));
     }
 
 #ifndef NDEBUG
@@ -181,10 +187,6 @@ void BackendD3D11::Render(const RenderingPayload& p)
 
     {
         // IA: Input Assembler
-        static constexpr UINT strides[2]{ sizeof(f32x2), sizeof(VertexInstanceData) };
-        static constexpr UINT offsets[2]{ 0, 0 };
-        _deviceContext->IASetInputLayout(_textInputLayout.get());
-        _deviceContext->IASetVertexBuffers(0, 2, _vertexBuffers[0].addressof(), &strides[0], &offsets[0]);
         _deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         // VS: Vertex Shader
@@ -206,7 +208,8 @@ void BackendD3D11::Render(const RenderingPayload& p)
         _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
     }
 
-    _vertexInstanceData.clear();
+    _instancesSize = 0;
+    _indicesSize = 0;
 
     {
         // The background overwrites the existing contents. It does not use regular alpha blending so it gets its own rendering pass.
@@ -234,7 +237,6 @@ void BackendD3D11::Render(const RenderingPayload& p)
         // Text
         {
             {
-                const auto textShadingType = p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType : ShadingType::TextGrayscale;
                 bool beganDrawing = false;
 
                 if (!_glyphAtlas)
@@ -273,23 +275,18 @@ void BackendD3D11::Render(const RenderingPayload& p)
                                 }
                             }
 
-                            if (entry.wh != u16x2{})
+                            if (entry.shadingType)
                             {
                                 _appendRect(
                                     {
                                         (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x,
                                         (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y,
-                                        static_cast<f32>(entry.wh.x),
-                                        static_cast<f32>(entry.wh.y),
+                                        entry.texcoord.z,
+                                        entry.texcoord.w,
                                     },
-                                    {
-                                        static_cast<f32>(entry.xy.x),
-                                        static_cast<f32>(entry.xy.y),
-                                        static_cast<f32>(entry.wh.x),
-                                        static_cast<f32>(entry.wh.y),
-                                    },
-                                    entry.colorGlyph ? 0 : row.colors[i],
-                                    entry.colorGlyph ? ShadingType::Passthrough : textShadingType);
+                                    entry.texcoord,
+                                    row.colors[i],
+                                    static_cast<ShadingType>(entry.shadingType));
                             }
 
                             cumulativeAdvance += row.glyphAdvances[i];
@@ -447,7 +444,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
             // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
             // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
             // in case of ClearType specifically, this would break the red/blue shift on the edges.
-            if (p.s->cursor->cursorColor == INVALID_COLOR)
+            /*if (p.s->cursor->cursorColor == INVALID_COLOR)
             {
                 static constexpr auto invertColor = [](u32 color) -> u32 {
                     return color ^ 0xc0c0c0;
@@ -489,7 +486,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
                     }
                 }
             }
-            else
+            else*/
             {
                 _appendRect(rect, p.s->cursor->cursorColor, ShadingType::SolidFill);
             }
@@ -756,6 +753,11 @@ void BackendD3D11::_refreshCustomOffscreenTexture(const RenderingPayload& p)
 {
     if (!p.s->misc->customPixelShaderPath.empty())
     {
+        // Avoid memory usage spikes by releasing memory first.
+        _customOffscreenTexture.reset();
+        _customOffscreenTextureView.reset();
+        _customOffscreenTextureTargetView.reset();
+
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = p.s->targetSize.x;
         desc.Height = p.s->targetSize.y;
@@ -772,6 +774,10 @@ void BackendD3D11::_refreshCustomOffscreenTexture(const RenderingPayload& p)
 
 void BackendD3D11::_refreshBackgroundColorBitmap(const RenderingPayload& p)
 {
+    // Avoid memory usage spikes by releasing memory first.
+    _backgroundColorBitmap.reset();
+    _backgroundColorBitmapView.reset();
+
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = p.s->cellCount.x;
     desc.Height = p.s->cellCount.y;
@@ -789,9 +795,10 @@ void BackendD3D11::_refreshBackgroundColorBitmap(const RenderingPayload& p)
 void BackendD3D11::_refreshConstBuffer(const RenderingPayload& p)
 {
     ConstBuffer data;
-    data.positionScale = { 2.0f / p.s->targetSize.x, -2.0f / p.s->targetSize.y, 1, 1 };
+    data.positionScale = { 2.0f / p.s->targetSize.x, -2.0f / p.s->targetSize.y };
+    data.grayscaleEnhancedContrast = _grayscaleEnhancedContrast;
+    data.cleartypeEnhancedContrast = _cleartypeEnhancedContrast;
     DWrite_GetGammaRatios(_gamma, data.gammaRatios);
-    data.enhancedContrast = p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? _cleartypeEnhancedContrast : _grayscaleEnhancedContrast;
     data.dashedLineLength = p.s->font->underlineWidth * 3.0f;
     _deviceContext->UpdateSubresource(_constantBuffer.get(), 0, nullptr, &data, 0, 0);
 }
@@ -872,53 +879,106 @@ void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
     _d2dRenderTarget->Clear();
 }
 
-void BackendD3D11::_appendRect(f32x4 rect, u32 color, ShadingType shadingType)
+void BackendD3D11::_appendRect(f32x4 position, u32 color, ShadingType shadingType)
 {
-    _vertexInstanceData.emplace_back(rect, f32x4{}, color, shadingType);
+    _appendRect(position, {}, color, shadingType);
 }
 
-void BackendD3D11::_appendRect(f32x4 rect, f32x4 tex, u32 color, ShadingType shadingType)
+void BackendD3D11::_appendRect(f32x4 position, f32x4 texcoord, u32 color, ShadingType shadingType)
 {
-    _vertexInstanceData.emplace_back(rect, tex, color, shadingType);
+    const auto off = gsl::narrow_cast<u32>(_instancesSize * 4);
+
+    if (_instancesSize >= _instances.size())
+    {
+        _bumpInstancesSize();
+    }
+
+    _instances[_instancesSize++] = QuadInstance{ position, texcoord, color, static_cast<u32>(shadingType) };
+    _indices[_indicesSize++] = off + 0;
+    _indices[_indicesSize++] = off + 1;
+    _indices[_indicesSize++] = off + 2;
+    _indices[_indicesSize++] = off + 3;
+    _indices[_indicesSize++] = off + 2;
+    _indices[_indicesSize++] = off + 1;
+}
+
+void BackendD3D11::_bumpInstancesSize()
+{
+    _instances = Buffer<QuadInstance>{ std::max<size_t>(1024, _instances.size() << 1) };
+    _indices = Buffer<u32>{ _instances.size() * 6 };
 }
 
 void BackendD3D11::_flushRects(const RenderingPayload& p)
 {
-    if (_vertexInstanceData.empty())
+    if (!_instancesSize)
     {
         return;
     }
 
-    if (_vertexInstanceData.size() > _vertexBuffers1Size)
+    if (_instancesSize > _instanceBufferSize)
     {
-        const auto totalCellCount = static_cast<size_t>(p.s->cellCount.x) * static_cast<size_t>(p.s->cellCount.y);
-        const auto growthSize = _vertexBuffers1Size + _vertexBuffers1Size / 2;
-        const auto newSize = std::max(totalCellCount, growthSize);
+        const auto estimatedMinimum = static_cast<size_t>(p.s->cellCount.x) * static_cast<size_t>(p.s->cellCount.y);
+        const auto minSize = _instancesSize + _instancesSize / 2;
+        const auto newSize = std::max(estimatedMinimum, minSize);
+
+        _instanceBuffer.reset();
+        _instanceBufferView.reset();
 
         D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = gsl::narrow<UINT>(sizeof(VertexInstanceData) * newSize);
+        desc.ByteWidth = gsl::narrow<UINT>(sizeof(QuadInstance) * newSize);
         desc.Usage = D3D11_USAGE_DYNAMIC;
-        desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _vertexBuffers[1].put()));
+        desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        desc.StructureByteStride = sizeof(QuadInstance);
+        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _instanceBuffer.put()));
+        THROW_IF_FAILED(_device->CreateShaderResourceView(_instanceBuffer.get(), nullptr, _instanceBufferView.addressof()));
 
-        static constexpr UINT strides[2]{ sizeof(f32x2), sizeof(VertexInstanceData) };
-        static constexpr UINT offsets[2]{ 0, 0 };
-        _deviceContext->IASetVertexBuffers(0, 2, _vertexBuffers[0].addressof(), &strides[0], &offsets[0]);
+        _deviceContext->VSSetShaderResources(0, 1, _instanceBufferView.addressof());
 
-        _vertexBuffers1Size = newSize;
+        _instanceBufferSize = newSize;
+    }
+
+    if (_indicesSize > _indexBufferSize)
+    {
+        const auto estimatedMinimum = static_cast<size_t>(p.s->cellCount.x) * static_cast<size_t>(p.s->cellCount.y);
+        const auto minSize = _indicesSize + _indicesSize / 2;
+        const auto newSize = std::max(estimatedMinimum, minSize);
+
+        _indexBuffer.reset();
+
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = gsl::narrow<UINT>(sizeof(u32) * newSize);
+        desc.Usage = D3D11_USAGE_DYNAMIC;
+        desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _indexBuffer.put()));
+
+        _deviceContext->IASetIndexBuffer(_indexBuffer.get(), DXGI_FORMAT_R32_UINT, 0);
+
+        _indexBufferSize = newSize;
     }
 
     {
 #pragma warning(suppress : 26494) // Variable 'mapped' is uninitialized. Always initialize an object (type.5).
         D3D11_MAPPED_SUBRESOURCE mapped;
-        THROW_IF_FAILED(_deviceContext->Map(_vertexBuffers[1].get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
-        memcpy(mapped.pData, _vertexInstanceData.data(), _vertexInstanceData.size() * sizeof(VertexInstanceData));
-        _deviceContext->Unmap(_vertexBuffers[1].get(), 0);
+        THROW_IF_FAILED(_deviceContext->Map(_instanceBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
+        memcpy(mapped.pData, _instances.data(), _instancesSize * sizeof(QuadInstance));
+        _deviceContext->Unmap(_instanceBuffer.get(), 0);
     }
 
-    _deviceContext->DrawInstanced(6, gsl::narrow_cast<UINT>(_vertexInstanceData.size()), 0, 0);
-    _vertexInstanceData.clear();
+    {
+#pragma warning(suppress : 26494) // Variable 'mapped' is uninitialized. Always initialize an object (type.5).
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        THROW_IF_FAILED(_deviceContext->Map(_indexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
+        memcpy(mapped.pData, _indices.data(), _indicesSize * sizeof(u32));
+        _deviceContext->Unmap(_indexBuffer.get(), 0);
+    }
+
+    _deviceContext->DrawIndexed(gsl::narrow_cast<UINT>(_indicesSize), 0, 0);
+
+    _instancesSize = 0;
+    _indicesSize = 0;
 }
 
 bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize)
@@ -954,12 +1014,13 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     };
     const auto colorGlyph = _drawGlyphRun(p.dwriteFactory4.get(), _d2dRenderTarget.get(), _d2dRenderTarget4.get(), baseline, &glyphRun, _brush.get());
 
-    entry.xy.x = gsl::narrow_cast<u16>(rect.x);
-    entry.xy.y = gsl::narrow_cast<u16>(rect.y);
-    entry.wh.x = gsl::narrow_cast<u16>(rect.w);
-    entry.wh.y = gsl::narrow_cast<u16>(rect.h);
+    entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::Passthrough : p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType :
+                                                                                                                                                     ShadingType::TextGrayscale);
     entry.offset.x = gsl::narrow_cast<i16>(box.left);
     entry.offset.y = gsl::narrow_cast<i16>(box.top);
-    entry.colorGlyph = colorGlyph;
+    entry.texcoord.x = static_cast<f32>(rect.x);
+    entry.texcoord.y = static_cast<f32>(rect.y);
+    entry.texcoord.z = static_cast<f32>(rect.w);
+    entry.texcoord.w = static_cast<f32>(rect.h);
     return true;
 }

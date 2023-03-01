@@ -29,9 +29,10 @@ namespace Microsoft::Console::Render::Atlas
             //   padding so that it is {u32; u32; u32; <4 byte padding>; u32x2}.
             // * bool will probably not work the way you want it to,
             //   because HLSL uses 32-bit bools and C++ doesn't.
-            alignas(sizeof(f32x4)) f32x4 positionScale;
+            alignas(sizeof(f32x2)) f32x2 positionScale;
+            alignas(sizeof(f32)) f32 grayscaleEnhancedContrast = 0;
+            alignas(sizeof(f32)) f32 cleartypeEnhancedContrast = 0;
             alignas(sizeof(f32x4)) f32 gammaRatios[4]{};
-            alignas(sizeof(f32)) f32 enhancedContrast = 0;
             alignas(sizeof(f32)) f32 dashedLineLength = 0;
 #pragma warning(suppress : 4324) // 'ConstBuffer': structure was padded due to alignment specifier
         };
@@ -46,6 +47,27 @@ namespace Microsoft::Console::Render::Atlas
 #pragma warning(suppress : 4324) // 'CustomConstBuffer': structure was padded due to alignment specifier
         };
 
+        enum class ShadingType
+        {
+            Background = 0,
+            TextGrayscale,
+            TextClearType,
+            Passthrough,
+            PassthroughInvert,
+            DashedLine,
+            SolidFill,
+        };
+
+        struct alignas(16) QuadInstance
+        {
+            alignas(sizeof(f32x4)) f32x4 position;
+            alignas(sizeof(f32x4)) f32x4 texcoord;
+            alignas(sizeof(u32)) u32 color = 0;
+            alignas(sizeof(u32)) u32 shadingType = 0;
+            alignas(sizeof(u32x2)) u32x2 padding;
+        };
+        static_assert(sizeof(QuadInstance) == 48);
+
         struct GlyphCacheEntry
         {
             // BODGY: The IDWriteFontFace results from us calling IDWriteFontFallback::MapCharacters
@@ -53,12 +75,11 @@ namespace Microsoft::Console::Render::Atlas
             // holding a reference / the reference count doesn't drop to 0 (see ActiveFaceCache).
             IDWriteFontFace* fontFace = nullptr;
             u16 glyphIndex = 0;
-            u16x2 xy;
-            u16x2 wh;
+            u16 shadingType = 0;
             i16x2 offset;
-            bool colorGlyph = false;
+            f32x4 texcoord;
         };
-        static_assert(sizeof(GlyphCacheEntry) == 24);
+        static_assert(sizeof(GlyphCacheEntry) == 32);
 
         struct GlyphCacheMap
         {
@@ -170,25 +191,6 @@ namespace Microsoft::Console::Render::Atlas
             size_t _size = 0;
         };
 
-        enum class ShadingType : u32
-        {
-            TextGrayscale = 0,
-            TextClearType,
-            Passthrough,
-            PassthroughInvert,
-            DashedLine,
-            SolidFill,
-        };
-
-        struct alignas(16) VertexInstanceData
-        {
-            f32x4 rect;
-            f32x4 tex;
-            u32 color = 0;
-            ShadingType shadingType = static_cast<ShadingType>(0);
-#pragma warning(suppress : 4324) // 'CustomConstBuffer': structure was padded due to alignment specifier
-        };
-
         void _debugUpdateShaders();
         void _refreshCustomShader(const RenderingPayload& p);
         void _refreshCustomOffscreenTexture(const RenderingPayload& p);
@@ -196,8 +198,9 @@ namespace Microsoft::Console::Render::Atlas
         void _refreshConstBuffer(const RenderingPayload& p);
         void _d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const;
         void _resetAtlasAndBeginDraw(const RenderingPayload& p);
-        void _appendRect(f32x4 rect, u32 color, ShadingType shadingType);
-        void _appendRect(f32x4 rect, f32x4 tex, u32 color, ShadingType shadingType);
+        void _appendRect(f32x4 position, u32 color, ShadingType shadingType);
+        void _appendRect(f32x4 position, f32x4 texcoord, u32 color, ShadingType shadingType);
+        __declspec(noinline) void _bumpInstancesSize();
         void _flushRects(const RenderingPayload& p);
         bool _drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize);
 
@@ -215,8 +218,17 @@ namespace Microsoft::Console::Render::Atlas
 
         wil::com_ptr<ID3D11Buffer> _constantBuffer;
         wil::com_ptr<ID3D11InputLayout> _textInputLayout;
-        wil::com_ptr<ID3D11Buffer> _vertexBuffers[2];
-        size_t _vertexBuffers1Size = 0;
+
+        wil::com_ptr<ID3D11Buffer> _instanceBuffer;
+        wil::com_ptr<ID3D11ShaderResourceView> _instanceBufferView;
+        size_t _instanceBufferSize = 0;
+        Buffer<QuadInstance> _instances;
+        size_t _instancesSize;
+
+        wil::com_ptr<ID3D11Buffer> _indexBuffer;
+        size_t _indexBufferSize = 0;
+        Buffer<u32> _indices;
+        size_t _indicesSize;
 
         wil::com_ptr<ID3D11Texture2D> _backgroundColorBitmap;
         wil::com_ptr<ID3D11ShaderResourceView> _backgroundColorBitmapView;
@@ -244,7 +256,6 @@ namespace Microsoft::Console::Render::Atlas
         GlyphCacheMap _glyphCache;
         Buffer<stbrp_node> _rectPackerData;
         stbrp_context _rectPacker{};
-        std::vector<VertexInstanceData> _vertexInstanceData;
 
         bool _requiresContinuousRedraw = false;
 
