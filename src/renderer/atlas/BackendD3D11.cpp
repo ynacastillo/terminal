@@ -77,14 +77,6 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
     }
 
     {
-        //static constexpr D3D11_RASTERIZER_DESC desc{
-        //    .FillMode = D3D11_FILL_SOLID,
-        //    .CullMode = D3D11_CULL_NONE,
-        //};
-        //THROW_IF_FAILED(_device->CreateRasterizerState(&desc, _rasterizerState.put()));
-    }
-
-    {
         static constexpr D3D11_INPUT_ELEMENT_DESC layout[]{
             { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadInstance, position), D3D11_INPUT_PER_VERTEX_DATA, 0 },
             { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadInstance, texcoord), D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -105,6 +97,24 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
         }
     });
 #endif
+}
+
+void BackendD3D11::_recreateBackgroundBitmapSamplerState(const RenderingPayload& p)
+{
+    const auto color = colorFromU32Premultiply<DXGI_RGBA>(p.s->misc->backgroundColor);
+    const D3D11_SAMPLER_DESC desc{
+        .Filter = D3D11_FILTER_MIN_MAG_MIP_POINT,
+        .AddressU = D3D11_TEXTURE_ADDRESS_BORDER,
+        .AddressV = D3D11_TEXTURE_ADDRESS_BORDER,
+        .AddressW = D3D11_TEXTURE_ADDRESS_BORDER,
+        .MipLODBias = 0.0f,
+        .MaxAnisotropy = 1,
+        .ComparisonFunc = D3D11_COMPARISON_NEVER,
+        .BorderColor = { color.r, color.g, color.b, color.a },
+        .MinLOD = -FLT_MAX,
+        .MaxLOD = FLT_MAX,
+    };
+    THROW_IF_FAILED(_device->CreateSamplerState(&desc, _backgroundBitmapSamplerState.put()));
 }
 
 void BackendD3D11::Render(const RenderingPayload& p)
@@ -149,22 +159,23 @@ void BackendD3D11::Render(const RenderingPayload& p)
 
         if (miscChanged)
         {
-            _refreshCustomShader(p);
+            _recreateBackgroundBitmapSamplerState(p);
+            _recreateCustomShader(p);
         }
 
         if (cellCountChanged)
         {
-            _refreshBackgroundColorBitmap(p);
+            _recreateBackgroundColorBitmap(p);
         }
 
         if (targetSizeChanged || miscChanged)
         {
-            _refreshCustomOffscreenTexture(p);
+            _recreateCustomOffscreenTexture(p);
         }
 
         if (targetSizeChanged || fontChanged)
         {
-            _refreshConstBuffer(p);
+            _recreateConstBuffer(p);
         }
 
         _generation = p.s.generation();
@@ -173,67 +184,61 @@ void BackendD3D11::Render(const RenderingPayload& p)
         _cellCount = p.s->cellCount;
     }
 
-    {
-#pragma warning(suppress : 26494) // Variable 'mapped' is uninitialized. Always initialize an object (type.5).
-        D3D11_MAPPED_SUBRESOURCE mapped;
-        THROW_IF_FAILED(_deviceContext->Map(_backgroundColorBitmap.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
-        for (size_t i = 0; i < p.s->cellCount.y; ++i)
-        {
-            memcpy(mapped.pData, p.backgroundBitmap.data() + i * p.s->cellCount.x, p.s->cellCount.x * sizeof(u32));
-            mapped.pData = static_cast<void*>(static_cast<std::byte*>(mapped.pData) + mapped.RowPitch);
-        }
-        _deviceContext->Unmap(_backgroundColorBitmap.get(), 0);
-    }
+    _instancesSize = 0;
+    _indicesSize = 0;
 
     {
         // IA: Input Assembler
         _deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        _deviceContext->IASetIndexBuffer(_indexBuffer.get(), DXGI_FORMAT_R32_UINT, 0);
 
         // VS: Vertex Shader
         _deviceContext->VSSetShader(_vertexShader.get(), nullptr, 0);
         _deviceContext->VSSetConstantBuffers(0, 1, _constantBuffer.addressof());
+        _deviceContext->VSSetShaderResources(0, 1, _instanceBufferView.addressof());
 
         // RS: Rasterizer Stage
         D3D11_VIEWPORT viewport{};
         viewport.Width = static_cast<f32>(p.s->targetSize.x);
         viewport.Height = static_cast<f32>(p.s->targetSize.y);
         _deviceContext->RSSetViewports(1, &viewport);
-        _deviceContext->RSSetState(_rasterizerState.get());
 
         // PS: Pixel Shader
+        ID3D11ShaderResourceView* const resources[]{ _backgroundBitmapView.get(), _glyphAtlasView.get() };
         _deviceContext->PSSetShader(_textPixelShader.get(), nullptr, 0);
         _deviceContext->PSSetConstantBuffers(0, 1, _constantBuffer.addressof());
+        _deviceContext->PSSetSamplers(0, 1, _backgroundBitmapSamplerState.addressof());
+        _deviceContext->PSSetShaderResources(0, 2, &resources[0]);
 
         // OM: Output Merger
+        _deviceContext->OMSetBlendState(_textBlendState.get(), nullptr, 0xffffffff);
         _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
     }
 
-    _instancesSize = 0;
-    _indicesSize = 0;
-
+    // Background
     {
-        // The background overwrites the existing contents. It does not use regular alpha blending so it gets its own rendering pass.
-        //
-        // TODO: It's possible to merge this step with the remaining rendering passes and the uber shader, by using
-        // dual source blending just like for ClearType and setting the weights to all 0, but leaving the color as is.
-        _deviceContext->PSSetShaderResources(0, 1, _backgroundColorBitmapView.addressof());
-        _deviceContext->OMSetBlendState(_textBlendState.get(), nullptr, 0xffffffff);
-
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        THROW_IF_FAILED(_deviceContext->Map(_backgroundBitmap.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
+        for (size_t i = 0; i < p.s->cellCount.y; ++i)
         {
-            _appendRect(
-                { 0.0f, 0.0f, static_cast<f32>(p.s->targetSize.x), static_cast<f32>(p.s->targetSize.y) },
-                { 0.0f, 0.0f, static_cast<f32>(p.s->targetSize.x) / static_cast<f32>(p.s->font->cellSize.x), static_cast<f32>(p.s->targetSize.y) / static_cast<f32>(p.s->font->cellSize.y) },
-                0,
-                ShadingType::Passthrough);
+            memcpy(mapped.pData, p.backgroundBitmap.data() + i * p.s->cellCount.x, p.s->cellCount.x * sizeof(u32));
+            mapped.pData = static_cast<void*>(static_cast<std::byte*>(mapped.pData) + mapped.RowPitch);
         }
-
-        _flushRects(p);
+        _deviceContext->Unmap(_backgroundBitmap.get(), 0);
+    }
+    {
+        const auto targetWidth = static_cast<f32>(p.s->targetSize.x);
+        const auto targetHeight = static_cast<f32>(p.s->targetSize.y);
+        const auto contentWidth = static_cast<f32>(p.s->cellCount.x * p.s->font->cellSize.x);
+        const auto contentHeight = static_cast<f32>(p.s->cellCount.y * p.s->font->cellSize.y);
+        _appendRect(
+            { 0.0f, 0.0f, targetWidth, targetHeight },
+            { 0.0f, 0.0f, targetWidth / contentWidth, targetHeight / contentHeight },
+            0,
+            ShadingType::Background);
     }
 
     {
-        _deviceContext->PSSetShaderResources(0, 1, _glyphAtlasView.addressof());
-        _deviceContext->OMSetBlendState(_textBlendState.get(), nullptr, 0xffffffff);
-
         // Text
         {
             {
@@ -618,7 +623,7 @@ try
 }
 CATCH_LOG()
 
-void BackendD3D11::_refreshCustomShader(const RenderingPayload& p)
+void BackendD3D11::_recreateCustomShader(const RenderingPayload& p)
 {
     _customOffscreenTexture.reset();
     _customOffscreenTextureView.reset();
@@ -749,7 +754,7 @@ void BackendD3D11::_refreshCustomShader(const RenderingPayload& p)
     }
 }
 
-void BackendD3D11::_refreshCustomOffscreenTexture(const RenderingPayload& p)
+void BackendD3D11::_recreateCustomOffscreenTexture(const RenderingPayload& p)
 {
     if (!p.s->misc->customPixelShaderPath.empty())
     {
@@ -772,11 +777,11 @@ void BackendD3D11::_refreshCustomOffscreenTexture(const RenderingPayload& p)
     }
 }
 
-void BackendD3D11::_refreshBackgroundColorBitmap(const RenderingPayload& p)
+void BackendD3D11::_recreateBackgroundColorBitmap(const RenderingPayload& p)
 {
     // Avoid memory usage spikes by releasing memory first.
-    _backgroundColorBitmap.reset();
-    _backgroundColorBitmapView.reset();
+    _backgroundBitmap.reset();
+    _backgroundBitmapView.reset();
 
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = p.s->cellCount.x;
@@ -788,11 +793,11 @@ void BackendD3D11::_refreshBackgroundColorBitmap(const RenderingPayload& p)
     desc.Usage = D3D11_USAGE_DYNAMIC;
     desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    THROW_IF_FAILED(_device->CreateTexture2D(&desc, nullptr, _backgroundColorBitmap.addressof()));
-    THROW_IF_FAILED(_device->CreateShaderResourceView(_backgroundColorBitmap.get(), nullptr, _backgroundColorBitmapView.addressof()));
+    THROW_IF_FAILED(_device->CreateTexture2D(&desc, nullptr, _backgroundBitmap.addressof()));
+    THROW_IF_FAILED(_device->CreateShaderResourceView(_backgroundBitmap.get(), nullptr, _backgroundBitmapView.addressof()));
 }
 
-void BackendD3D11::_refreshConstBuffer(const RenderingPayload& p)
+void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
 {
     ConstBuffer data;
     data.positionScale = { 2.0f / p.s->targetSize.x, -2.0f / p.s->targetSize.y };
@@ -869,6 +874,9 @@ void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
             THROW_IF_FAILED(_d2dRenderTarget->CreateSolidColorBrush(&color, nullptr, _brush.put()));
             _brushColor = 0xffffffff;
         }
+
+        ID3D11ShaderResourceView* const resources[]{ _backgroundBitmapView.get(), _glyphAtlasView.get() };
+        _deviceContext->PSSetShaderResources(0, 2, &resources[0]);
     }
 
     _glyphCache.Clear();
@@ -960,21 +968,34 @@ void BackendD3D11::_flushRects(const RenderingPayload& p)
     }
 
     {
-#pragma warning(suppress : 26494) // Variable 'mapped' is uninitialized. Always initialize an object (type.5).
-        D3D11_MAPPED_SUBRESOURCE mapped;
+        D3D11_MAPPED_SUBRESOURCE mapped{};
         THROW_IF_FAILED(_deviceContext->Map(_instanceBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
         memcpy(mapped.pData, _instances.data(), _instancesSize * sizeof(QuadInstance));
         _deviceContext->Unmap(_instanceBuffer.get(), 0);
     }
 
     {
-#pragma warning(suppress : 26494) // Variable 'mapped' is uninitialized. Always initialize an object (type.5).
-        D3D11_MAPPED_SUBRESOURCE mapped;
+        D3D11_MAPPED_SUBRESOURCE mapped{};
         THROW_IF_FAILED(_deviceContext->Map(_indexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
         memcpy(mapped.pData, _indices.data(), _indicesSize * sizeof(u32));
         _deviceContext->Unmap(_indexBuffer.get(), 0);
     }
 
+    // I found 4 approaches to drawing lots of quads quickly.
+    // They can often be found in discussions about "particle" rendering in game development.
+    // * Compute Shader: My understanding is that at the time of writing games are moving over to bucketing
+    //   particles into "tiles" on the screen and drawing them with a compute shader. While this improves
+    //   performance, it doesn't mix well with our goal of allowing arbitrary overlaps between glyphs.
+    //   Additionally none of the next 3 approaches use any significant amount of GPU time in the first place.
+    // * Geometry Shader: Geometry shaders can generate vertices on the fly, which would neatly replace
+    //   our need for an index buffer. The reason this wasn't chosen is the same as for the next point.
+    // * DrawInstanced: On my own hardware (Nvidia RTX 4090) this seems to perform ~50% better than the final point,
+    //   but with no significant difference in power draw. However the popular "Vertex Shader Tricks" talk from
+    //   Bill Bilodeau at GDC 2014 suggests that this at least doesn't apply to 2014ish hardware, which supposedly
+    //   performs poorly with very small, instanced meshes. Furthermore, public feedback suggests that we still
+    //   have a lot of users with older hardware, so I've chosen the following approach, suggested in the talk.
+    // * DrawIndexed: This works about the same as DrawInstanced, but instead of using D3D11_INPUT_PER_INSTANCE_DATA,
+    //   it uses a SRV (shader resource view) for instance data and maps each SV_VertexID to a SRV slot.
     _deviceContext->DrawIndexed(gsl::narrow_cast<UINT>(_indicesSize), 0, 0);
 
     _instancesSize = 0;

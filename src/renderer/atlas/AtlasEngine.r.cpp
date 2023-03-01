@@ -57,6 +57,11 @@ constexpr bool isInInversionList(const std::array<wchar_t, N>& ranges, wchar_t n
 [[nodiscard]] HRESULT AtlasEngine::Present() noexcept
 try
 {
+    if (!_p.dirtyRect)
+    {
+        return S_OK;
+    }
+
     if (_p.dxgiFactory && !_p.dxgiFactory->IsCurrent())
     {
         _b.reset();

@@ -24,6 +24,7 @@
     <ClCompile Include="stb_rect_pack.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Backend.h" />
     <ClInclude Include="BackendD2D.h" />
     <ClInclude Include="BackendD3D11.h" />
     <ClInclude Include="common.h" />

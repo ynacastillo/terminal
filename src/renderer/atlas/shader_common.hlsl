@@ -34,7 +34,7 @@ struct VSData
 struct PSData
 {
     nointerpolation uint shadingType : ShadingType;
-    nointerpolation float4 color : Color;
+    nointerpolation float4 color : COLOR;
     float4 position : SV_Position;
     float2 texcoord : TEXCOORD;
 };

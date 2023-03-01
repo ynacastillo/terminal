@@ -4,7 +4,9 @@
 #include "dwrite.hlsl"
 #include "shader_common.hlsl"
 
-Texture2D<float4> glyphAtlas : register(t0);
+SamplerState backgroundSampler : register(s0);
+Texture2D<float4> background : register(t0);
+Texture2D<float4> glyphAtlas : register(t1);
 
 struct Output
 {
@@ -21,6 +23,10 @@ Output main(PSData data) : SV_Target
 
     switch (data.shadingType)
     {
+    case SHADING_TYPE_TEXT_BACKGROUND:
+        color = background.Sample(backgroundSampler, data.texcoord);
+        weights = float4(1, 1, 1, 1);
+        break;
     case SHADING_TYPE_TEXT_GRAYSCALE:
     {
         // These are independent of the glyph texture and could be moved to the vertex shader.

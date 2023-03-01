@@ -192,10 +192,11 @@ namespace Microsoft::Console::Render::Atlas
         };
 
         void _debugUpdateShaders();
-        void _refreshCustomShader(const RenderingPayload& p);
-        void _refreshCustomOffscreenTexture(const RenderingPayload& p);
-        void _refreshBackgroundColorBitmap(const RenderingPayload& p);
-        void _refreshConstBuffer(const RenderingPayload& p);
+        void _recreateBackgroundBitmapSamplerState(const RenderingPayload& p);
+        void _recreateCustomShader(const RenderingPayload& p);
+        void _recreateCustomOffscreenTexture(const RenderingPayload& p);
+        void _recreateBackgroundColorBitmap(const RenderingPayload& p);
+        void _recreateConstBuffer(const RenderingPayload& p);
         void _d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const;
         void _resetAtlasAndBeginDraw(const RenderingPayload& p);
         void _appendRect(f32x4 position, u32 color, ShadingType shadingType);
@@ -230,8 +231,9 @@ namespace Microsoft::Console::Render::Atlas
         Buffer<u32> _indices;
         size_t _indicesSize;
 
-        wil::com_ptr<ID3D11Texture2D> _backgroundColorBitmap;
-        wil::com_ptr<ID3D11ShaderResourceView> _backgroundColorBitmapView;
+        wil::com_ptr<ID3D11Texture2D> _backgroundBitmap;
+        wil::com_ptr<ID3D11ShaderResourceView> _backgroundBitmapView;
+        wil::com_ptr<ID3D11SamplerState> _backgroundBitmapSamplerState;
 
         wil::com_ptr<ID3D11Texture2D> _glyphAtlas;
         wil::com_ptr<ID3D11ShaderResourceView> _glyphAtlasView;

@@ -5,10 +5,10 @@
 
 namespace Microsoft::Console::Render::Atlas
 {
-    inline constexpr bool debugDisablePartialInvalidation = false;
-    inline constexpr bool debugForceD2DMode = false;
+    inline constexpr bool debugContinuousRedraw = false;
     inline constexpr bool debugDisableFrameLatencyWaitableObject = false;
-    inline constexpr bool debugContinuousRedraw = true;
+    inline constexpr bool debugDisablePartialInvalidation = true;
+    inline constexpr bool debugForceD2DMode = false;
 
     struct SwapChainManager
     {
@@ -121,7 +121,6 @@ namespace Microsoft::Console::Render::Atlas
             }
         }
 
-    private:
         void _createSwapChain(const RenderingPayload& p, IUnknown* device)
         {
             _swapChain.reset();
@@ -199,7 +198,7 @@ namespace Microsoft::Console::Render::Atlas
     };
 
     template<typename T = D2D1_COLOR_F>
-    constexpr T colorFromU32(uint32_t rgba)
+    constexpr T colorFromU32(u32 rgba)
     {
         const auto r = static_cast<float>((rgba >> 0) & 0xff) / 255.0f;
         const auto g = static_cast<float>((rgba >> 8) & 0xff) / 255.0f;
@@ -208,6 +207,16 @@ namespace Microsoft::Console::Render::Atlas
         return { r, g, b, a };
     }
 
+    template<typename T = D2D1_COLOR_F>
+    constexpr T colorFromU32Premultiply(u32 rgba)
+    {
+        const auto r = static_cast<float>((rgba >> 0) & 0xff) / 255.0f;
+        const auto g = static_cast<float>((rgba >> 8) & 0xff) / 255.0f;
+        const auto b = static_cast<float>((rgba >> 16) & 0xff) / 255.0f;
+        const auto a = static_cast<float>((rgba >> 24) & 0xff) / 255.0f;
+        return { r * a, g * a, b * a, a };
+    }
+    
     inline f32r getGlyphRunBlackBox(const DWRITE_GLYPH_RUN& glyphRun, float baselineX, float baselineY)
     {
         DWRITE_FONT_METRICS fontMetrics;
