@@ -198,6 +198,8 @@ namespace Microsoft::Console::Render::Atlas
         void _recreateBackgroundColorBitmap(const RenderingPayload& p);
         void _recreateConstBuffer(const RenderingPayload& p);
         void _d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const;
+        void _beginDrawing();
+        void _endDrawing();
         void _resetAtlasAndBeginDraw(const RenderingPayload& p);
         void _appendRect(f32x4 position, u32 color, ShadingType shadingType);
         void _appendRect(f32x4 position, f32x4 texcoord, u32 color, ShadingType shadingType);
@@ -253,6 +255,7 @@ namespace Microsoft::Console::Render::Atlas
         wil::com_ptr<ID2D1SolidColorBrush> _brush;
         Buffer<DWRITE_FONT_AXIS_VALUE> _textFormatAxes[2][2];
         wil::com_ptr<ID2D1StrokeStyle> _dottedStrokeStyle;
+        bool beganDrawing = false;
 
         // D3D resources
         GlyphCacheMap _glyphCache;

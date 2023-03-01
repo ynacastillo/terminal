@@ -242,12 +242,9 @@ void BackendD3D11::Render(const RenderingPayload& p)
         // Text
         {
             {
-                bool beganDrawing = false;
-
                 if (!_glyphAtlas)
                 {
                     _resetAtlasAndBeginDraw(p);
-                    beganDrawing = true;
                 }
 
                 size_t y = 0;
@@ -264,15 +261,11 @@ void BackendD3D11::Render(const RenderingPayload& p)
                             auto& entry = _glyphCache.FindOrInsert(m.fontFace.get(), row.glyphIndices[i], inserted);
                             if (inserted)
                             {
-                                if (!beganDrawing)
-                                {
-                                    beganDrawing = true;
-                                    _d2dRenderTarget->BeginDraw();
-                                }
+                                _beginDrawing();
 
                                 if (!_drawGlyph(p, entry, m.fontEmSize))
                                 {
-                                    THROW_IF_FAILED(_d2dRenderTarget->EndDraw());
+                                    _endDrawing();
                                     _flushRects(p);
                                     _resetAtlasAndBeginDraw(p);
                                     --i;
@@ -449,7 +442,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
             // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
             // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
             // in case of ClearType specifically, this would break the red/blue shift on the edges.
-            /*if (p.s->cursor->cursorColor == INVALID_COLOR)
+            if (p.s->cursor->cursorColor == INVALID_COLOR)
             {
                 static constexpr auto invertColor = [](u32 color) -> u32 {
                     return color ^ 0xc0c0c0;
@@ -491,7 +484,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
                     }
                 }
             }
-            else*/
+            else
             {
                 _appendRect(rect, p.s->cursor->cursorColor, ShadingType::SolidFill);
             }
@@ -814,6 +807,24 @@ void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const RenderingPayload& p)
     _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(p.s->font->antialiasingMode));
 }
 
+void BackendD3D11::_beginDrawing()
+{
+    if (!beganDrawing)
+    {
+        _d2dRenderTarget->BeginDraw();
+        beganDrawing = true;
+    }
+}
+
+void BackendD3D11::_endDrawing()
+{
+    if (beganDrawing)
+    {
+        THROW_IF_FAILED(_d2dRenderTarget->EndDraw());
+        beganDrawing = false;
+    }
+}
+
 void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
 {
     // This block of code calculates the size of a power-of-2 texture that has an area larger than the targetSize
@@ -883,7 +894,7 @@ void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
     _rectPackerData = Buffer<stbrp_node>{ u };
     stbrp_init_target(&_rectPacker, u, v, _rectPackerData.data(), gsl::narrow_cast<int>(_rectPackerData.size()));
 
-    _d2dRenderTarget->BeginDraw();
+    _beginDrawing();
     _d2dRenderTarget->Clear();
 }
 
