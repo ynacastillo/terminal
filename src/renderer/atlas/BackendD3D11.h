@@ -19,27 +19,31 @@ namespace Microsoft::Console::Render::Atlas
 
     private:
         // NOTE: D3D constant buffers sizes must be a multiple of 16 bytes.
-        struct alignas(16) ConstBuffer
+        struct alignas(16) VSConstBuffer
         {
-            // WARNING: Modify this carefully after understanding how HLSL struct packing works.
-            // The gist is:
-            // * Minimum alignment is 4 bytes (like `#pragma pack 4`)
+            // WARNING: Modify this carefully after understanding how HLSL struct packing works. The gist is:
+            // * Minimum alignment is 4 bytes
             // * Members cannot straddle 16 byte boundaries
             //   This means a structure like {u32; u32; u32; u32x2} would require
             //   padding so that it is {u32; u32; u32; <4 byte padding>; u32x2}.
             // * bool will probably not work the way you want it to,
             //   because HLSL uses 32-bit bools and C++ doesn't.
             alignas(sizeof(f32x2)) f32x2 positionScale;
-            alignas(sizeof(f32)) f32 grayscaleEnhancedContrast = 0;
-            alignas(sizeof(f32)) f32 cleartypeEnhancedContrast = 0;
-            alignas(sizeof(f32x4)) f32 gammaRatios[4]{};
-            alignas(sizeof(f32)) f32 dashedLineLength = 0;
-#pragma warning(suppress : 4324) // 'ConstBuffer': structure was padded due to alignment specifier
+#pragma warning(suppress : 4324) // 'VSConstBuffer': structure was padded due to alignment specifier
         };
 
+        // WARNING: Same rules as for VSConstBuffer above apply.
+        struct alignas(16) PSConstBuffer
+        {
+            alignas(sizeof(f32x4)) f32 gammaRatios[4]{};
+            alignas(sizeof(f32)) f32 enhancedContrast = 0;
+            alignas(sizeof(f32)) f32 dashedLineLength = 0;
+#pragma warning(suppress : 4324) // 'PSConstBuffer': structure was padded due to alignment specifier
+        };
+
+        // WARNING: Same rules as for VSConstBuffer above apply.
         struct alignas(16) CustomConstBuffer
         {
-            // WARNING: Same rules as for ConstBuffer above apply.
             alignas(sizeof(f32)) f32 time = 0;
             alignas(sizeof(f32)) f32 scale = 0;
             alignas(sizeof(f32x2)) f32x2 resolution;
@@ -76,10 +80,10 @@ namespace Microsoft::Console::Render::Atlas
             IDWriteFontFace* fontFace = nullptr;
             u16 glyphIndex = 0;
             u16 shadingType = 0;
-            i16x2 offset;
+            f32x2 offset;
             f32x4 texcoord;
         };
-        static_assert(sizeof(GlyphCacheEntry) == 32);
+        static_assert(sizeof(GlyphCacheEntry) == 40);
 
         struct GlyphCacheMap
         {
@@ -205,6 +209,7 @@ namespace Microsoft::Console::Render::Atlas
         void _appendRect(f32x4 position, f32x4 texcoord, u32 color, ShadingType shadingType);
         __declspec(noinline) void _bumpInstancesSize();
         void _flushRects(const RenderingPayload& p);
+        __declspec(noinline) void _recreateInstanceBuffers(const RenderingPayload& p);
         bool _drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize);
 
         SwapChainManager _swapChainManager;
@@ -212,26 +217,22 @@ namespace Microsoft::Console::Render::Atlas
         wil::com_ptr<ID3D11Device1> _device;
         wil::com_ptr<ID3D11DeviceContext1> _deviceContext;
         wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
-        wil::com_ptr<ID3D11RenderTargetView> _renderTargetViewUInt;
 
         wil::com_ptr<ID3D11RasterizerState> _rasterizerState;
         wil::com_ptr<ID3D11VertexShader> _vertexShader;
-        wil::com_ptr<ID3D11PixelShader> _textPixelShader;
-        wil::com_ptr<ID3D11BlendState1> _textBlendState;
-
-        wil::com_ptr<ID3D11Buffer> _constantBuffer;
-        wil::com_ptr<ID3D11InputLayout> _textInputLayout;
-
+        wil::com_ptr<ID3D11PixelShader> _pixelShader;
+        wil::com_ptr<ID3D11BlendState1> _blendState;
+        wil::com_ptr<ID3D11Buffer> _vsConstantBuffer;
+        wil::com_ptr<ID3D11Buffer> _psConstantBuffer;
+        wil::com_ptr<ID3D11InputLayout> _inputLayout;
+        
+        wil::com_ptr<ID3D11Buffer> _indexBuffer;
         wil::com_ptr<ID3D11Buffer> _instanceBuffer;
         wil::com_ptr<ID3D11ShaderResourceView> _instanceBufferView;
         size_t _instanceBufferSize = 0;
         Buffer<QuadInstance> _instances;
         size_t _instancesSize;
-
-        wil::com_ptr<ID3D11Buffer> _indexBuffer;
-        size_t _indexBufferSize = 0;
-        Buffer<u32> _indices;
-        size_t _indicesSize;
+        DXGI_FORMAT _indicesFormat = DXGI_FORMAT_UNKNOWN;
 
         wil::com_ptr<ID3D11Texture2D> _backgroundBitmap;
         wil::com_ptr<ID3D11ShaderResourceView> _backgroundBitmapView;
@@ -255,7 +256,8 @@ namespace Microsoft::Console::Render::Atlas
         wil::com_ptr<ID2D1SolidColorBrush> _brush;
         Buffer<DWRITE_FONT_AXIS_VALUE> _textFormatAxes[2][2];
         wil::com_ptr<ID2D1StrokeStyle> _dottedStrokeStyle;
-        bool beganDrawing = false;
+        bool _d2dBeganDrawing = false;
+        bool _resetGlyphAtlas = false;
 
         // D3D resources
         GlyphCacheMap _glyphCache;

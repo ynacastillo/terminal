@@ -7,7 +7,6 @@
 #include "Backend.h"
 #include "BackendD2D.h"
 #include "BackendD3D11.h"
-#include "dwrite.h"
 
 // #### NOTE ####
 // If you see any code in here that contains "_api." you might be seeing a race condition.

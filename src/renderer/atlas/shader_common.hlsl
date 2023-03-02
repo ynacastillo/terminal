@@ -11,15 +11,6 @@
 #define SHADING_TYPE_SOLID_FILL         6
 // clang-format on
 
-cbuffer ConstBuffer : register(b0)
-{
-    float2 positionScale;
-    float grayscaleEnhancedContrast;
-    float cleartypeEnhancedContrast;
-    float4 gammaRatios;
-    float dashedLineLength;
-}
-
 struct VSData
 {
     float4 position : POSITION;

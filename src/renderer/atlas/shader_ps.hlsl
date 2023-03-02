@@ -4,6 +4,13 @@
 #include "dwrite.hlsl"
 #include "shader_common.hlsl"
 
+cbuffer ConstBuffer : register(b0)
+{
+    float4 gammaRatios;
+    float enhancedContrast;
+    float dashedLineLength;
+}
+
 SamplerState backgroundSampler : register(s0);
 Texture2D<float4> background : register(t0);
 Texture2D<float4> glyphAtlas : register(t1);
@@ -31,7 +38,7 @@ Output main(PSData data) : SV_Target
     {
         // These are independent of the glyph texture and could be moved to the vertex shader.
         const float4 foreground = premultiplyColor(data.color);
-        const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(grayscaleEnhancedContrast, data.color.rgb);
+        const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
         const float intensity = DWrite_CalcColorIntensity(data.color.rgb);
         // These aren't.
         const float4 glyph = glyphAtlas[data.texcoord];
@@ -44,7 +51,7 @@ Output main(PSData data) : SV_Target
     case SHADING_TYPE_TEXT_CLEARTYPE:
     {
         // These are independent of the glyph texture and could be moved to the vertex shader.
-        const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(cleartypeEnhancedContrast, data.color.rgb);
+        const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
         // These aren't.
         const float4 glyph = glyphAtlas[data.texcoord];
         const float3 contrasted = DWrite_EnhanceContrast3(glyph.rgb, blendEnhancedContrast);

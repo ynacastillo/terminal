@@ -8,6 +8,8 @@
 
 #include "dwrite.h"
 
+TIL_FAST_MATH_BEGIN
+
 #pragma warning(disable : 4100) // '...': unreferenced formal parameter
 #pragma warning(disable : 4127)
 // Disable a bunch of warnings which get in the way of writing performant code.
@@ -23,18 +25,26 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
     _device{ std::move(device) },
     _deviceContext{ std::move(deviceContext) }
 {
-    // Our constant buffer will never get resized
+    THROW_IF_FAILED(_device->CreateVertexShader(&shader_vs[0], sizeof(shader_vs), nullptr, _vertexShader.addressof()));
+    THROW_IF_FAILED(_device->CreatePixelShader(&shader_ps[0], sizeof(shader_ps), nullptr, _pixelShader.addressof()));
+
     {
         static constexpr D3D11_BUFFER_DESC desc{
-            .ByteWidth = sizeof(ConstBuffer),
+            .ByteWidth = sizeof(VSConstBuffer),
             .Usage = D3D11_USAGE_DEFAULT,
             .BindFlags = D3D11_BIND_CONSTANT_BUFFER,
         };
-        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _constantBuffer.put()));
+        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _vsConstantBuffer.addressof()));
     }
 
-    THROW_IF_FAILED(_device->CreateVertexShader(&shader_vs[0], sizeof(shader_vs), nullptr, _vertexShader.put()));
-    THROW_IF_FAILED(_device->CreatePixelShader(&shader_ps[0], sizeof(shader_ps), nullptr, _textPixelShader.put()));
+    {
+        static constexpr D3D11_BUFFER_DESC desc{
+            .ByteWidth = sizeof(PSConstBuffer),
+            .Usage = D3D11_USAGE_DEFAULT,
+            .BindFlags = D3D11_BIND_CONSTANT_BUFFER,
+        };
+        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _psConstantBuffer.addressof()));
+    }
 
     {
         // The final step of the ClearType blending algorithm is a lerp() between the premultiplied alpha
@@ -73,17 +83,7 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
                 .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
             } },
         };
-        THROW_IF_FAILED(_device->CreateBlendState1(&desc, _textBlendState.put()));
-    }
-
-    {
-        static constexpr D3D11_INPUT_ELEMENT_DESC layout[]{
-            { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadInstance, position), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadInstance, texcoord), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, offsetof(QuadInstance, color), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "ShadingType", 0, DXGI_FORMAT_R32_UINT, 0, offsetof(QuadInstance, shadingType), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        };
-        THROW_IF_FAILED(_device->CreateInputLayout(&layout[0], gsl::narrow_cast<UINT>(std::size(layout)), &shader_vs[0], sizeof(shader_vs), _textInputLayout.put()));
+        THROW_IF_FAILED(_device->CreateBlendState1(&desc, _blendState.addressof()));
     }
 
 #ifndef NDEBUG
@@ -150,6 +150,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
         if (fontChanged)
         {
             DWrite_GetRenderParams(p.dwriteFactory.get(), &_gamma, &_cleartypeEnhancedContrast, &_grayscaleEnhancedContrast, _textRenderingParams.put());
+            _resetGlyphAtlas = true;
 
             if (_d2dRenderTarget)
             {
@@ -185,16 +186,15 @@ void BackendD3D11::Render(const RenderingPayload& p)
     }
 
     _instancesSize = 0;
-    _indicesSize = 0;
 
     {
         // IA: Input Assembler
         _deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        _deviceContext->IASetIndexBuffer(_indexBuffer.get(), DXGI_FORMAT_R32_UINT, 0);
+        _deviceContext->IASetIndexBuffer(_indexBuffer.get(), _indicesFormat, 0);
 
         // VS: Vertex Shader
         _deviceContext->VSSetShader(_vertexShader.get(), nullptr, 0);
-        _deviceContext->VSSetConstantBuffers(0, 1, _constantBuffer.addressof());
+        _deviceContext->VSSetConstantBuffers(0, 1, _vsConstantBuffer.addressof());
         _deviceContext->VSSetShaderResources(0, 1, _instanceBufferView.addressof());
 
         // RS: Rasterizer Stage
@@ -205,13 +205,13 @@ void BackendD3D11::Render(const RenderingPayload& p)
 
         // PS: Pixel Shader
         ID3D11ShaderResourceView* const resources[]{ _backgroundBitmapView.get(), _glyphAtlasView.get() };
-        _deviceContext->PSSetShader(_textPixelShader.get(), nullptr, 0);
-        _deviceContext->PSSetConstantBuffers(0, 1, _constantBuffer.addressof());
+        _deviceContext->PSSetShader(_pixelShader.get(), nullptr, 0);
+        _deviceContext->PSSetConstantBuffers(0, 1, _psConstantBuffer.addressof());
         _deviceContext->PSSetSamplers(0, 1, _backgroundBitmapSamplerState.addressof());
         _deviceContext->PSSetShaderResources(0, 2, &resources[0]);
 
         // OM: Output Merger
-        _deviceContext->OMSetBlendState(_textBlendState.get(), nullptr, 0xffffffff);
+        _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
         _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
     }
 
@@ -242,15 +242,15 @@ void BackendD3D11::Render(const RenderingPayload& p)
         // Text
         {
             {
-                if (!_glyphAtlas)
+                if (_resetGlyphAtlas)
                 {
                     _resetAtlasAndBeginDraw(p);
+                    _resetGlyphAtlas = false;
                 }
 
-                size_t y = 0;
+                auto baselineY = p.s->font->baselineInDIP;
                 for (const auto& row : p.rows)
                 {
-                    const auto baselineY = p.d.font.cellSizeDIP.y * y + p.s->font->baselineInDIP;
                     f32 cumulativeAdvance = 0;
 
                     for (const auto& m : row.mappings)
@@ -275,29 +275,21 @@ void BackendD3D11::Render(const RenderingPayload& p)
 
                             if (entry.shadingType)
                             {
-                                _appendRect(
-                                    {
-                                        (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x,
-                                        (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y,
-                                        entry.texcoord.z,
-                                        entry.texcoord.w,
-                                    },
-                                    entry.texcoord,
-                                    row.colors[i],
-                                    static_cast<ShadingType>(entry.shadingType));
+                                const auto x = (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
+                                const auto y = (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
+                                const auto w = entry.texcoord.z - entry.texcoord.x;
+                                const auto h = entry.texcoord.w - entry.texcoord.y;
+                                _appendRect({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
                             }
 
                             cumulativeAdvance += row.glyphAdvances[i];
                         }
                     }
 
-                    y++;
+                    baselineY += p.d.font.cellSizeDIP.y;
                 }
 
-                if (beganDrawing)
-                {
-                    THROW_IF_FAILED(_d2dRenderTarget->EndDraw());
-                }
+                _endDrawing();
             }
 
             {
@@ -306,32 +298,37 @@ void BackendD3D11::Render(const RenderingPayload& p)
                 {
                     for (const auto& r : row.gridLineRanges)
                     {
+                        // AtlasEngine.cpp shouldn't add any gridlines if they don't do anything.
                         assert(r.lines.any());
 
-                        const auto top = p.s->font->cellSize.y * y;
-                        const auto left = p.s->font->cellSize.x * r.from;
-                        const auto width = p.s->font->cellSize.x * (r.to - r.from);
+                        const auto top = static_cast<f32>(p.s->font->cellSize.y * y);
+                        const auto bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+                        auto left = static_cast<f32>(p.s->font->cellSize.x * r.from);
+                        auto right = static_cast<f32>(p.s->font->cellSize.x * r.to);
 
                         if (r.lines.test(GridLines::Left))
                         {
-                            _appendRect(
-                                {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top),
-                                    static_cast<f32>(p.s->font->thinLineWidth),
-                                    static_cast<f32>(p.s->font->cellSize.y),
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
+                            for (; left < right; left += p.s->font->cellSize.x)
+                            {
+                                _appendRect(
+                                    {
+                                        left,
+                                        top,
+                                        left + p.s->font->thinLineWidth,
+                                        bottom,
+                                    },
+                                    r.color,
+                                    ShadingType::SolidFill);
+                            }
                         }
                         if (r.lines.test(GridLines::Top))
                         {
                             _appendRect(
                                 {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top),
-                                    static_cast<f32>(p.s->font->cellSize.x),
-                                    static_cast<f32>(p.s->font->thinLineWidth),
+                                    left,
+                                    top,
+                                    right,
+                                    top + static_cast<f32>(p.s->font->thinLineWidth),
                                 },
                                 r.color,
                                 ShadingType::SolidFill);
@@ -340,10 +337,10 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         {
                             _appendRect(
                                 {
-                                    static_cast<f32>(left + p.s->font->cellSize.x - p.s->font->thinLineWidth),
-                                    static_cast<f32>(top),
-                                    static_cast<f32>(p.s->font->thinLineWidth),
-                                    static_cast<f32>(p.s->font->cellSize.y),
+                                    right - p.s->font->thinLineWidth,
+                                    top,
+                                    right,
+                                    bottom,
                                 },
                                 r.color,
                                 ShadingType::SolidFill);
@@ -352,10 +349,10 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         {
                             _appendRect(
                                 {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top + p.s->font->cellSize.y - p.s->font->thinLineWidth),
-                                    static_cast<f32>(p.s->font->cellSize.x),
-                                    static_cast<f32>(p.s->font->thinLineWidth),
+                                    left,
+                                    bottom - p.s->font->thinLineWidth,
+                                    right,
+                                    bottom,
                                 },
                                 r.color,
                                 ShadingType::SolidFill);
@@ -364,10 +361,10 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         {
                             _appendRect(
                                 {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top + p.s->font->underlinePos),
-                                    static_cast<f32>(width),
-                                    static_cast<f32>(p.s->font->underlineWidth),
+                                    left,
+                                    top + p.s->font->underlinePos,
+                                    right,
+                                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
                                 },
                                 r.color,
                                 ShadingType::SolidFill);
@@ -376,10 +373,10 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         {
                             _appendRect(
                                 {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top + p.s->font->underlinePos),
-                                    static_cast<f32>(width),
-                                    static_cast<f32>(p.s->font->underlineWidth),
+                                    left,
+                                    top + p.s->font->underlinePos,
+                                    right,
+                                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
                                 },
                                 r.color,
                                 ShadingType::DashedLine);
@@ -388,20 +385,20 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         {
                             _appendRect(
                                 {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top + p.s->font->doubleUnderlinePos.x),
-                                    static_cast<f32>(width),
-                                    static_cast<f32>(p.s->font->thinLineWidth),
+                                    left,
+                                    top + p.s->font->doubleUnderlinePos.x,
+                                    right,
+                                    top + p.s->font->doubleUnderlinePos.x + p.s->font->thinLineWidth,
                                 },
                                 r.color,
                                 ShadingType::SolidFill);
 
                             _appendRect(
                                 {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top + p.s->font->doubleUnderlinePos.y),
-                                    static_cast<f32>(width),
-                                    static_cast<f32>(p.s->font->thinLineWidth),
+                                    left,
+                                    top + p.s->font->doubleUnderlinePos.y,
+                                    right,
+                                    top + p.s->font->doubleUnderlinePos.y + p.s->font->thinLineWidth,
                                 },
                                 r.color,
                                 ShadingType::SolidFill);
@@ -410,10 +407,10 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         {
                             _appendRect(
                                 {
-                                    static_cast<f32>(left),
-                                    static_cast<f32>(top + p.s->font->strikethroughPos),
-                                    static_cast<f32>(width),
-                                    static_cast<f32>(p.s->font->strikethroughWidth),
+                                    left,
+                                    top + p.s->font->strikethroughPos,
+                                    right,
+                                    top + p.s->font->strikethroughPos + p.s->font->strikethroughWidth,
                                 },
                                 r.color,
                                 ShadingType::SolidFill);
@@ -430,10 +427,9 @@ void BackendD3D11::Render(const RenderingPayload& p)
             f32x4 rect{
                 static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
                 static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
-                static_cast<f32>(p.s->font->cellSize.x * (p.cursorRect.right - p.cursorRect.left)),
-                static_cast<f32>(p.s->font->cellSize.y * (p.cursorRect.bottom - p.cursorRect.top)),
+                static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
+                static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
             };
-            f32r rect2{ rect.x, rect.y, rect.x + rect.z, rect.y + rect.w };
 
             // Cursors that are 0xffffffff invert the color they're on. The problem is that the inversion
             // of a pure gray background color (0x7f) is also gray and so the cursor would appear invisible.
@@ -442,7 +438,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
             // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
             // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
             // in case of ClearType specifically, this would break the red/blue shift on the edges.
-            if (p.s->cursor->cursorColor == INVALID_COLOR)
+            /*if (p.s->cursor->cursorColor == INVALID_COLOR)
             {
                 static constexpr auto invertColor = [](u32 color) -> u32 {
                     return color ^ 0xc0c0c0;
@@ -484,7 +480,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
                     }
                 }
             }
-            else
+            else*/
             {
                 _appendRect(rect, p.s->cursor->cursorColor, ShadingType::SolidFill);
             }
@@ -503,8 +499,8 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         {
                             static_cast<f32>(p.s->font->cellSize.x * row.selectionFrom),
                             static_cast<f32>(p.s->font->cellSize.y * y),
-                            static_cast<f32>(p.s->font->cellSize.x * (row.selectionTo - row.selectionFrom)),
-                            static_cast<f32>(p.s->font->cellSize.y),
+                            static_cast<f32>(p.s->font->cellSize.x * row.selectionTo),
+                            static_cast<f32>(p.s->font->cellSize.y * (y + 1)),
                         },
                         p.s->misc->selectionColor,
                         ShadingType::SolidFill);
@@ -584,8 +580,8 @@ try
         FileVS{ L"shader_vs.hlsl", &BackendD3D11::_vertexShader },
     };
     static std::array filesPS{
-        FilePS{ L"shader_text_cleartype_ps.hlsl", &BackendD3D11::_textPixelShader },
-        FilePS{ L"shader_text_grayscale_ps.hlsl", &BackendD3D11::_textPixelShader },
+        FilePS{ L"shader_text_cleartype_ps.hlsl", &BackendD3D11::_pixelShader },
+        FilePS{ L"shader_text_grayscale_ps.hlsl", &BackendD3D11::_pixelShader },
     };
 
     std::array<wil::com_ptr<ID3D11VertexShader>, filesVS.size()> compiledVS;
@@ -792,13 +788,18 @@ void BackendD3D11::_recreateBackgroundColorBitmap(const RenderingPayload& p)
 
 void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
 {
-    ConstBuffer data;
-    data.positionScale = { 2.0f / p.s->targetSize.x, -2.0f / p.s->targetSize.y };
-    data.grayscaleEnhancedContrast = _grayscaleEnhancedContrast;
-    data.cleartypeEnhancedContrast = _cleartypeEnhancedContrast;
-    DWrite_GetGammaRatios(_gamma, data.gammaRatios);
-    data.dashedLineLength = p.s->font->underlineWidth * 3.0f;
-    _deviceContext->UpdateSubresource(_constantBuffer.get(), 0, nullptr, &data, 0, 0);
+    {
+        VSConstBuffer data;
+        data.positionScale = { 2.0f / p.s->targetSize.x, -2.0f / p.s->targetSize.y };
+        _deviceContext->UpdateSubresource(_vsConstantBuffer.get(), 0, nullptr, &data, 0, 0);
+    }
+    {
+        PSConstBuffer data;
+        DWrite_GetGammaRatios(_gamma, data.gammaRatios);
+        data.enhancedContrast = p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? _cleartypeEnhancedContrast : _grayscaleEnhancedContrast;
+        data.dashedLineLength = p.s->font->underlineWidth * 3.0f;
+        _deviceContext->UpdateSubresource(_psConstantBuffer.get(), 0, nullptr, &data, 0, 0);
+    }
 }
 
 void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const
@@ -809,19 +810,19 @@ void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const RenderingPayload& p)
 
 void BackendD3D11::_beginDrawing()
 {
-    if (!beganDrawing)
+    if (!_d2dBeganDrawing)
     {
         _d2dRenderTarget->BeginDraw();
-        beganDrawing = true;
+        _d2dBeganDrawing = true;
     }
 }
 
 void BackendD3D11::_endDrawing()
 {
-    if (beganDrawing)
+    if (_d2dBeganDrawing)
     {
         THROW_IF_FAILED(_d2dRenderTarget->EndDraw());
-        beganDrawing = false;
+        _d2dBeganDrawing = false;
     }
 }
 
@@ -905,26 +906,17 @@ void BackendD3D11::_appendRect(f32x4 position, u32 color, ShadingType shadingTyp
 
 void BackendD3D11::_appendRect(f32x4 position, f32x4 texcoord, u32 color, ShadingType shadingType)
 {
-    const auto off = gsl::narrow_cast<u32>(_instancesSize * 4);
-
     if (_instancesSize >= _instances.size())
     {
         _bumpInstancesSize();
     }
 
     _instances[_instancesSize++] = QuadInstance{ position, texcoord, color, static_cast<u32>(shadingType) };
-    _indices[_indicesSize++] = off + 0;
-    _indices[_indicesSize++] = off + 1;
-    _indices[_indicesSize++] = off + 2;
-    _indices[_indicesSize++] = off + 3;
-    _indices[_indicesSize++] = off + 2;
-    _indices[_indicesSize++] = off + 1;
 }
 
 void BackendD3D11::_bumpInstancesSize()
 {
     _instances = Buffer<QuadInstance>{ std::max<size_t>(1024, _instances.size() << 1) };
-    _indices = Buffer<u32>{ _instances.size() * 6 };
 }
 
 void BackendD3D11::_flushRects(const RenderingPayload& p)
@@ -936,46 +928,7 @@ void BackendD3D11::_flushRects(const RenderingPayload& p)
 
     if (_instancesSize > _instanceBufferSize)
     {
-        const auto estimatedMinimum = static_cast<size_t>(p.s->cellCount.x) * static_cast<size_t>(p.s->cellCount.y);
-        const auto minSize = _instancesSize + _instancesSize / 2;
-        const auto newSize = std::max(estimatedMinimum, minSize);
-
-        _instanceBuffer.reset();
-        _instanceBufferView.reset();
-
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = gsl::narrow<UINT>(sizeof(QuadInstance) * newSize);
-        desc.Usage = D3D11_USAGE_DYNAMIC;
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-        desc.StructureByteStride = sizeof(QuadInstance);
-        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _instanceBuffer.put()));
-        THROW_IF_FAILED(_device->CreateShaderResourceView(_instanceBuffer.get(), nullptr, _instanceBufferView.addressof()));
-
-        _deviceContext->VSSetShaderResources(0, 1, _instanceBufferView.addressof());
-
-        _instanceBufferSize = newSize;
-    }
-
-    if (_indicesSize > _indexBufferSize)
-    {
-        const auto estimatedMinimum = static_cast<size_t>(p.s->cellCount.x) * static_cast<size_t>(p.s->cellCount.y);
-        const auto minSize = _indicesSize + _indicesSize / 2;
-        const auto newSize = std::max(estimatedMinimum, minSize);
-
-        _indexBuffer.reset();
-
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = gsl::narrow<UINT>(sizeof(u32) * newSize);
-        desc.Usage = D3D11_USAGE_DYNAMIC;
-        desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _indexBuffer.put()));
-
-        _deviceContext->IASetIndexBuffer(_indexBuffer.get(), DXGI_FORMAT_R32_UINT, 0);
-
-        _indexBufferSize = newSize;
+        _recreateInstanceBuffers(p);
     }
 
     {
@@ -988,12 +941,40 @@ void BackendD3D11::_flushRects(const RenderingPayload& p)
     {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         THROW_IF_FAILED(_deviceContext->Map(_indexBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
-        memcpy(mapped.pData, _indices.data(), _indicesSize * sizeof(u32));
+
+        if (_indicesFormat == DXGI_FORMAT_R16_UINT)
+        {
+            auto data = static_cast<u16*>(mapped.pData);
+            for (u16 vertices = gsl::narrow_cast<u16>(4 * _instancesSize), off = 0; off < vertices; off += 4)
+            {
+                *data++ = off + 0;
+                *data++ = off + 1;
+                *data++ = off + 2;
+                *data++ = off + 3;
+                *data++ = off + 2;
+                *data++ = off + 1;
+            }
+        }
+        else
+        {
+            assert(_indicesFormat == DXGI_FORMAT_R32_UINT);
+            auto data = static_cast<u32*>(mapped.pData);
+            for (u32 vertices = gsl::narrow_cast<u32>(4 * _instancesSize), off = 0; off < vertices; off += 4)
+            {
+                *data++ = off + 0;
+                *data++ = off + 1;
+                *data++ = off + 2;
+                *data++ = off + 3;
+                *data++ = off + 2;
+                *data++ = off + 1;
+            }
+        }
+
         _deviceContext->Unmap(_indexBuffer.get(), 0);
     }
 
     // I found 4 approaches to drawing lots of quads quickly.
-    // They can often be found in discussions about "particle" rendering in game development.
+    // They can often be found in discussions about "particle" or "point sprite" rendering in game development.
     // * Compute Shader: My understanding is that at the time of writing games are moving over to bucketing
     //   particles into "tiles" on the screen and drawing them with a compute shader. While this improves
     //   performance, it doesn't mix well with our goal of allowing arbitrary overlaps between glyphs.
@@ -1007,10 +988,56 @@ void BackendD3D11::_flushRects(const RenderingPayload& p)
     //   have a lot of users with older hardware, so I've chosen the following approach, suggested in the talk.
     // * DrawIndexed: This works about the same as DrawInstanced, but instead of using D3D11_INPUT_PER_INSTANCE_DATA,
     //   it uses a SRV (shader resource view) for instance data and maps each SV_VertexID to a SRV slot.
-    _deviceContext->DrawIndexed(gsl::narrow_cast<UINT>(_indicesSize), 0, 0);
+    _deviceContext->DrawIndexed(gsl::narrow_cast<UINT>(6 * _instancesSize), 0, 0);
 
     _instancesSize = 0;
-    _indicesSize = 0;
+}
+
+void BackendD3D11::_recreateInstanceBuffers(const RenderingPayload& p)
+{
+    static constexpr size_t R16max = 1 << 16;
+    // While the viewport size of the terminal is probably a good initial estimate for the amount of instances we'll see,
+    // I feel like we should ensure that the estimate doesn't exceed the limit for a DXGI_FORMAT_R16_UINT index buffer.
+    const auto estimatedInstances = std::min(R16max / 4, static_cast<size_t>(p.s->cellCount.x) * p.s->cellCount.y);
+    const auto minSize = std::max(_instancesSize, estimatedInstances);
+    // std::bit_ceil will result in a nice exponential growth curve. I don't know exactly how structured buffers are treated
+    // by various drivers, but I'm assuming that they prefer buffer sizes that are close to power-of-2 sizes as well.
+    const auto newInstancesSize = std::bit_ceil(minSize * sizeof(QuadInstance)) / sizeof(QuadInstance);
+    const auto newIndicesSize = newInstancesSize * 6;
+    const auto vertices = newInstancesSize * 4;
+    const auto indicesFormat = vertices <= R16max ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+    const auto indexSize = vertices <= R16max ? sizeof(u16) : sizeof(u32);
+
+    _indexBuffer.reset();
+    _instanceBuffer.reset();
+    _instanceBufferView.reset();
+
+    {
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = gsl::narrow<UINT>(newIndicesSize * indexSize);
+        desc.Usage = D3D11_USAGE_DYNAMIC;
+        desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _indexBuffer.addressof()));
+    }
+
+    {
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = gsl::narrow<UINT>(newInstancesSize * sizeof(QuadInstance));
+        desc.Usage = D3D11_USAGE_DYNAMIC;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        desc.StructureByteStride = sizeof(QuadInstance);
+        THROW_IF_FAILED(_device->CreateBuffer(&desc, nullptr, _instanceBuffer.addressof()));
+        THROW_IF_FAILED(_device->CreateShaderResourceView(_instanceBuffer.get(), nullptr, _instanceBufferView.addressof()));
+    }
+
+    _deviceContext->IASetIndexBuffer(_indexBuffer.get(), indicesFormat, 0);
+    _deviceContext->VSSetShaderResources(0, 1, _instanceBufferView.addressof());
+
+    _instanceBufferSize = newInstancesSize;
+    _indicesFormat = indicesFormat;
 }
 
 bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize)
@@ -1046,13 +1073,14 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     };
     const auto colorGlyph = _drawGlyphRun(p.dwriteFactory4.get(), _d2dRenderTarget.get(), _d2dRenderTarget4.get(), baseline, &glyphRun, _brush.get());
 
-    entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::Passthrough : p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType :
-                                                                                                                                                     ShadingType::TextGrayscale);
-    entry.offset.x = gsl::narrow_cast<i16>(box.left);
-    entry.offset.y = gsl::narrow_cast<i16>(box.top);
+    entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::Passthrough : (p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType : ShadingType::TextGrayscale));
+    entry.offset.x = box.left;
+    entry.offset.y = box.top;
     entry.texcoord.x = static_cast<f32>(rect.x);
     entry.texcoord.y = static_cast<f32>(rect.y);
-    entry.texcoord.z = static_cast<f32>(rect.w);
-    entry.texcoord.w = static_cast<f32>(rect.h);
+    entry.texcoord.z = static_cast<f32>(rect.x + rect.w);
+    entry.texcoord.w = static_cast<f32>(rect.y + rect.h);
     return true;
 }
+
+TIL_FAST_MATH_END
