@@ -469,12 +469,18 @@ void AtlasEngine::_resolveTransparencySettings() noexcept
     // If the user asks for ClearType, but also for a transparent background
     // (which our ClearType shader doesn't simultaneously support)
     // then we need to sneakily force the renderer to grayscale AA.
-    const auto s = _api.s.write();
-    s->font.write()->antialiasingMode = _api.enableTransparentBackground && _api.antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE : _api.antialiasingMode;
-    // An opaque background allows us to use true "independent" flips. See AtlasEngine::_createSwapChain().
-    // We can't enable them if custom shaders are specified, because it's unknown, whether they support opaque inputs.
-    s->target.write()->enableTransparentBackground = _api.enableTransparentBackground || !_api.s->misc->customPixelShaderPath.empty() || _api.s->misc->useRetroTerminalEffect;
-    _api.backgroundOpaqueMixin = _api.s->target->enableTransparentBackground ? 0x00000000 : 0xff000000;
+    const u8 antialiasingMode = _api.enableTransparentBackground && _api.antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE : _api.antialiasingMode;
+    const bool enableTransparentBackground = _api.enableTransparentBackground || !_api.s->misc->customPixelShaderPath.empty() || _api.s->misc->useRetroTerminalEffect;
+
+    if (antialiasingMode != _api.s->font->antialiasingMode || enableTransparentBackground != _api.s->target->enableTransparentBackground)
+    {
+        const auto s = _api.s.write();
+        s->font.write()->antialiasingMode = antialiasingMode;
+        // An opaque background allows us to use true "independent" flips. See AtlasEngine::_createSwapChain().
+        // We can't enable them if custom shaders are specified, because it's unknown, whether they support opaque inputs.
+        s->target.write()->enableTransparentBackground = enableTransparentBackground;
+        _api.backgroundOpaqueMixin = enableTransparentBackground ? 0x00000000 : 0xff000000;
+    }
 }
 
 void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes)

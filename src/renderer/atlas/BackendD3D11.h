@@ -1,9 +1,6 @@
 #pragma once
 
-#include <d3d11_2.h>
-
 #include <stb_rect_pack.h>
-#include <til/hash.h>
 
 #include "Backend.h"
 
@@ -84,114 +81,27 @@ namespace Microsoft::Console::Render::Atlas
             f32x4 texcoord;
         };
         static_assert(sizeof(GlyphCacheEntry) == 40);
-
+        
         struct GlyphCacheMap
         {
             GlyphCacheMap() = default;
+            ~GlyphCacheMap();
 
-            GlyphCacheMap& operator=(GlyphCacheMap&& other) noexcept
-            {
-                _map = std::exchange(other._map, {});
-                _mapMask = std::exchange(other._mapMask, 0);
-                _capacity = std::exchange(other._capacity, 0);
-                _size = std::exchange(other._size, 0);
-                return *this;
-            }
+            GlyphCacheMap& operator=(GlyphCacheMap&& other) noexcept;
 
-            ~GlyphCacheMap()
-            {
-                Clear();
-            }
-
-            void Clear() noexcept
-            {
-                if (_size)
-                {
-                    for (auto& entry : _map)
-                    {
-                        if (entry.fontFace)
-                        {
-                            entry.fontFace->Release();
-                            entry.fontFace = nullptr;
-                        }
-                    }
-                }
-            }
-
-            GlyphCacheEntry& FindOrInsert(IDWriteFontFace* fontFace, u16 glyphIndex, bool& inserted)
-            {
-                const auto hash = _hash(fontFace, glyphIndex);
-
-                for (auto i = hash;; ++i)
-                {
-                    auto& entry = _map[i & _mapMask];
-                    if (entry.fontFace == fontFace && entry.glyphIndex == glyphIndex)
-                    {
-                        inserted = false;
-                        return entry;
-                    }
-                    if (!entry.fontFace)
-                    {
-                        inserted = true;
-                        return _insert(fontFace, glyphIndex, hash);
-                    }
-                }
-            }
+            void Clear() noexcept;
+            GlyphCacheEntry& FindOrInsert(IDWriteFontFace* fontFace, u16 glyphIndex, bool& inserted);
 
         private:
-            static size_t _hash(IDWriteFontFace* fontFace, u16 glyphIndex) noexcept
-            {
-                // MSVC 19.33 produces surprisingly good assembly for this without stack allocation.
-                const uintptr_t data[2]{ std::bit_cast<uintptr_t>(fontFace), glyphIndex };
-                return til::hash(&data[0], sizeof(data));
-            }
-
-            GlyphCacheEntry& _insert(IDWriteFontFace* fontFace, u16 glyphIndex, size_t hash)
-            {
-                if (_size >= _capacity)
-                {
-                    _bumpSize();
-                }
-
-                ++_size;
-
-                for (auto i = hash;; ++i)
-                {
-                    auto& entry = _map[i & _mapMask];
-                    if (!entry.fontFace)
-                    {
-                        entry.fontFace = fontFace;
-                        entry.glyphIndex = glyphIndex;
-                        entry.fontFace->AddRef();
-                        return entry;
-                    }
-                }
-            }
-
-            void _bumpSize()
-            {
-                const auto newMapSize = _map.size() << 1;
-                const auto newMapMask = newMapSize - 1;
-                FAIL_FAST_IF(newMapSize >= INT32_MAX); // overflow/truncation protection
-
-                auto newMap = Buffer<GlyphCacheEntry>(newMapSize);
-
-                for (const auto& entry : _map)
-                {
-                    const auto newHash = _hash(entry.fontFace, entry.glyphIndex);
-                    newMap[newHash & newMapMask] = entry;
-                }
-
-                _map = std::move(newMap);
-                _mapMask = newMapMask;
-                _capacity = newMapMask / 2;
-            }
+            static size_t _hash(IDWriteFontFace* fontFace, u16 glyphIndex) noexcept;
+            GlyphCacheEntry& _insert(IDWriteFontFace* fontFace, u16 glyphIndex, size_t hash);
+            void _bumpSize();
 
             static constexpr u32 initialSize = 256;
 
             Buffer<GlyphCacheEntry> _map{ initialSize };
             size_t _mapMask = initialSize - 1;
-            size_t _capacity = _mapMask / 2;
+            size_t _capacity = initialSize / 2;
             size_t _size = 0;
         };
 
@@ -211,6 +121,7 @@ namespace Microsoft::Console::Render::Atlas
         void _flushRects(const RenderingPayload& p);
         __declspec(noinline) void _recreateInstanceBuffers(const RenderingPayload& p);
         bool _drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize);
+        void _drawGridlines(const RenderingPayload& p, const ShapedRow& row, size_t y);
 
         SwapChainManager _swapChainManager;
 
@@ -221,7 +132,8 @@ namespace Microsoft::Console::Render::Atlas
         wil::com_ptr<ID3D11RasterizerState> _rasterizerState;
         wil::com_ptr<ID3D11VertexShader> _vertexShader;
         wil::com_ptr<ID3D11PixelShader> _pixelShader;
-        wil::com_ptr<ID3D11BlendState1> _blendState;
+        wil::com_ptr<ID3D11BlendState> _blendState;
+        wil::com_ptr<ID3D11BlendState> _blendStateSpecialCursors;
         wil::com_ptr<ID3D11Buffer> _vsConstantBuffer;
         wil::com_ptr<ID3D11Buffer> _psConstantBuffer;
         wil::com_ptr<ID3D11InputLayout> _inputLayout;

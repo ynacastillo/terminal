@@ -121,7 +121,7 @@ namespace Microsoft::Console::Render::Atlas
             // These two are redundant with TargetSettings/MiscellaneousSettings, but that's because _resolveTransparencySettings()
             // turns the given settings into potentially different actual settings (which are then written into the Settings).
             bool enableTransparentBackground = false;
-            u8 antialiasingMode = D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE;
+            u8 antialiasingMode = DefaultAntialiasingMode;
 
             std::vector<wchar_t> bufferLine;
             std::vector<u16> bufferLineColumn;

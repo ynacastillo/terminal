@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "BackendD3D11.h"
 
+#include <til/hash.h>
+
 #include <custom_shader_ps.h>
 #include <custom_shader_vs.h>
 #include <shader_ps.h>
@@ -20,6 +22,103 @@ TIL_FAST_MATH_BEGIN
 #pragma warning(disable : 26482) // Only index into arrays using constant expressions (bounds.2).
 
 using namespace Microsoft::Console::Render::Atlas;
+
+BackendD3D11::GlyphCacheMap::~GlyphCacheMap()
+{
+    Clear();
+}
+
+BackendD3D11::GlyphCacheMap& BackendD3D11::GlyphCacheMap::operator=(GlyphCacheMap&& other) noexcept
+{
+    _map = std::exchange(other._map, {});
+    _mapMask = std::exchange(other._mapMask, 0);
+    _capacity = std::exchange(other._capacity, 0);
+    _size = std::exchange(other._size, 0);
+    return *this;
+}
+
+void BackendD3D11::GlyphCacheMap::Clear() noexcept
+{
+    if (_size)
+    {
+        for (auto& entry : _map)
+        {
+            if (entry.fontFace)
+            {
+                entry.fontFace->Release();
+                entry.fontFace = nullptr;
+            }
+        }
+    }
+}
+
+BackendD3D11::GlyphCacheEntry& BackendD3D11::GlyphCacheMap::FindOrInsert(IDWriteFontFace* fontFace, u16 glyphIndex, bool& inserted)
+{
+    const auto hash = _hash(fontFace, glyphIndex);
+
+    for (auto i = hash;; ++i)
+    {
+        auto& entry = _map[i & _mapMask];
+        if (entry.fontFace == fontFace && entry.glyphIndex == glyphIndex)
+        {
+            inserted = false;
+            return entry;
+        }
+        if (!entry.fontFace)
+        {
+            inserted = true;
+            return _insert(fontFace, glyphIndex, hash);
+        }
+    }
+}
+
+size_t BackendD3D11::GlyphCacheMap::_hash(IDWriteFontFace* fontFace, u16 glyphIndex) noexcept
+{
+    // MSVC 19.33 produces surprisingly good assembly for this without stack allocation.
+    const uintptr_t data[2]{ std::bit_cast<uintptr_t>(fontFace), glyphIndex };
+    return til::hash(&data[0], sizeof(data));
+}
+
+BackendD3D11::GlyphCacheEntry& BackendD3D11::GlyphCacheMap::_insert(IDWriteFontFace* fontFace, u16 glyphIndex, size_t hash)
+{
+    if (_size >= _capacity)
+    {
+        _bumpSize();
+    }
+
+    ++_size;
+
+    for (auto i = hash;; ++i)
+    {
+        auto& entry = _map[i & _mapMask];
+        if (!entry.fontFace)
+        {
+            entry.fontFace = fontFace;
+            entry.glyphIndex = glyphIndex;
+            entry.fontFace->AddRef();
+            return entry;
+        }
+    }
+}
+
+void BackendD3D11::GlyphCacheMap::_bumpSize()
+{
+    const auto newMapSize = _map.size() * 2;
+    const auto newMapMask = newMapSize - 1;
+    FAIL_FAST_IF(newMapSize >= INT32_MAX); // overflow/truncation protection
+
+    auto newMap = Buffer<GlyphCacheEntry>(newMapSize);
+
+    for (const auto& entry : _map)
+    {
+        const auto newHash = _hash(entry.fontFace, entry.glyphIndex);
+        newMap[newHash & newMapMask] = entry;
+    }
+
+    _map = std::move(newMap);
+    _mapMask = newMapMask;
+    _capacity = newMapSize / 2;
+}
 
 BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D11DeviceContext2> deviceContext) :
     _device{ std::move(device) },
@@ -71,19 +170,37 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
         //   .SrcBlend = D3D11_BLEND_ONE
         //
         // --> We need to multiply the foreground with the weights ourselves.
-        static constexpr D3D11_BLEND_DESC1 desc{
+        static constexpr D3D11_BLEND_DESC desc{
             .RenderTarget = { {
                 .BlendEnable = TRUE,
                 .SrcBlend = D3D11_BLEND_ONE,
                 .DestBlend = D3D11_BLEND_INV_SRC1_COLOR,
                 .BlendOp = D3D11_BLEND_OP_ADD,
                 .SrcBlendAlpha = D3D11_BLEND_ONE,
+                .DestBlendAlpha = D3D11_BLEND_INV_SRC1_ALPHA,
+                .BlendOpAlpha = D3D11_BLEND_OP_ADD,
+                .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
+            } },
+        };
+        THROW_IF_FAILED(_device->CreateBlendState(&desc, _blendState.addressof()));
+    }
+
+    {
+        static constexpr D3D11_BLEND_DESC desc{
+            .RenderTarget = { {
+                .BlendEnable = TRUE,
+                .SrcBlend = D3D11_BLEND_INV_DEST_COLOR,
+                .DestBlend = D3D11_BLEND_ZERO,
+                .BlendOp = D3D11_BLEND_OP_ADD,
+                // In order for D3D to be okay with us using dual source blending in the shader, we need to use dual
+                // source blending in the blend state. Alternatively we could write an extra shader for these cursors.
+                .SrcBlendAlpha = D3D11_BLEND_SRC1_ALPHA,
                 .DestBlendAlpha = D3D11_BLEND_ZERO,
                 .BlendOpAlpha = D3D11_BLEND_OP_ADD,
                 .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
             } },
         };
-        THROW_IF_FAILED(_device->CreateBlendState1(&desc, _blendState.addressof()));
+        THROW_IF_FAILED(_device->CreateBlendState(&desc, _blendStateSpecialCursors.addressof()));
     }
 
 #ifndef NDEBUG
@@ -219,10 +336,11 @@ void BackendD3D11::Render(const RenderingPayload& p)
     {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         THROW_IF_FAILED(_deviceContext->Map(_backgroundBitmap.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
+        auto data = static_cast<char*>(mapped.pData);
         for (size_t i = 0; i < p.s->cellCount.y; ++i)
         {
-            memcpy(mapped.pData, p.backgroundBitmap.data() + i * p.s->cellCount.x, p.s->cellCount.x * sizeof(u32));
-            mapped.pData = static_cast<void*>(static_cast<std::byte*>(mapped.pData) + mapped.RowPitch);
+            memcpy(data, p.backgroundBitmap.data() + i * p.s->cellCount.x, p.s->cellCount.x * sizeof(u32));
+            data += mapped.RowPitch;
         }
         _deviceContext->Unmap(_backgroundBitmap.get(), 0);
     }
@@ -238,262 +356,125 @@ void BackendD3D11::Render(const RenderingPayload& p)
             ShadingType::Background);
     }
 
+    // Text
     {
-        // Text
+        if (_resetGlyphAtlas)
         {
-            {
-                if (_resetGlyphAtlas)
-                {
-                    _resetAtlasAndBeginDraw(p);
-                    _resetGlyphAtlas = false;
-                }
-
-                auto baselineY = p.s->font->baselineInDIP;
-                for (const auto& row : p.rows)
-                {
-                    f32 cumulativeAdvance = 0;
-
-                    for (const auto& m : row.mappings)
-                    {
-                        for (auto i = m.glyphsFrom; i < m.glyphsTo; ++i)
-                        {
-                            bool inserted = false;
-                            auto& entry = _glyphCache.FindOrInsert(m.fontFace.get(), row.glyphIndices[i], inserted);
-                            if (inserted)
-                            {
-                                _beginDrawing();
-
-                                if (!_drawGlyph(p, entry, m.fontEmSize))
-                                {
-                                    _endDrawing();
-                                    _flushRects(p);
-                                    _resetAtlasAndBeginDraw(p);
-                                    --i;
-                                    continue;
-                                }
-                            }
-
-                            if (entry.shadingType)
-                            {
-                                const auto x = (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
-                                const auto y = (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
-                                const auto w = entry.texcoord.z - entry.texcoord.x;
-                                const auto h = entry.texcoord.w - entry.texcoord.y;
-                                _appendRect({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
-                            }
-
-                            cumulativeAdvance += row.glyphAdvances[i];
-                        }
-                    }
-
-                    baselineY += p.d.font.cellSizeDIP.y;
-                }
-
-                _endDrawing();
-            }
-
-            {
-                size_t y = 0;
-                for (const auto& row : p.rows)
-                {
-                    for (const auto& r : row.gridLineRanges)
-                    {
-                        // AtlasEngine.cpp shouldn't add any gridlines if they don't do anything.
-                        assert(r.lines.any());
-
-                        const auto top = static_cast<f32>(p.s->font->cellSize.y * y);
-                        const auto bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
-                        auto left = static_cast<f32>(p.s->font->cellSize.x * r.from);
-                        auto right = static_cast<f32>(p.s->font->cellSize.x * r.to);
-
-                        if (r.lines.test(GridLines::Left))
-                        {
-                            for (; left < right; left += p.s->font->cellSize.x)
-                            {
-                                _appendRect(
-                                    {
-                                        left,
-                                        top,
-                                        left + p.s->font->thinLineWidth,
-                                        bottom,
-                                    },
-                                    r.color,
-                                    ShadingType::SolidFill);
-                            }
-                        }
-                        if (r.lines.test(GridLines::Top))
-                        {
-                            _appendRect(
-                                {
-                                    left,
-                                    top,
-                                    right,
-                                    top + static_cast<f32>(p.s->font->thinLineWidth),
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
-                        }
-                        if (r.lines.test(GridLines::Right))
-                        {
-                            _appendRect(
-                                {
-                                    right - p.s->font->thinLineWidth,
-                                    top,
-                                    right,
-                                    bottom,
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
-                        }
-                        if (r.lines.test(GridLines::Bottom))
-                        {
-                            _appendRect(
-                                {
-                                    left,
-                                    bottom - p.s->font->thinLineWidth,
-                                    right,
-                                    bottom,
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
-                        }
-                        if (r.lines.test(GridLines::Underline))
-                        {
-                            _appendRect(
-                                {
-                                    left,
-                                    top + p.s->font->underlinePos,
-                                    right,
-                                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
-                        }
-                        if (r.lines.test(GridLines::HyperlinkUnderline))
-                        {
-                            _appendRect(
-                                {
-                                    left,
-                                    top + p.s->font->underlinePos,
-                                    right,
-                                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
-                                },
-                                r.color,
-                                ShadingType::DashedLine);
-                        }
-                        if (r.lines.test(GridLines::DoubleUnderline))
-                        {
-                            _appendRect(
-                                {
-                                    left,
-                                    top + p.s->font->doubleUnderlinePos.x,
-                                    right,
-                                    top + p.s->font->doubleUnderlinePos.x + p.s->font->thinLineWidth,
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
-
-                            _appendRect(
-                                {
-                                    left,
-                                    top + p.s->font->doubleUnderlinePos.y,
-                                    right,
-                                    top + p.s->font->doubleUnderlinePos.y + p.s->font->thinLineWidth,
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
-                        }
-                        if (r.lines.test(GridLines::Strikethrough))
-                        {
-                            _appendRect(
-                                {
-                                    left,
-                                    top + p.s->font->strikethroughPos,
-                                    right,
-                                    top + p.s->font->strikethroughPos + p.s->font->strikethroughWidth,
-                                },
-                                r.color,
-                                ShadingType::SolidFill);
-                        }
-                    }
-
-                    y++;
-                }
-            }
+            _resetAtlasAndBeginDraw(p);
+            _resetGlyphAtlas = false;
         }
 
-        if (p.cursorRect.non_empty())
+        auto baselineY = p.s->font->baselineInDIP;
+        for (const auto& row : p.rows)
         {
-            f32x4 rect{
-                static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
-                static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
-                static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
-                static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
-            };
+            f32 cumulativeAdvance = 0;
 
-            // Cursors that are 0xffffffff invert the color they're on. The problem is that the inversion
-            // of a pure gray background color (0x7f) is also gray and so the cursor would appear invisible.
-            // An imperfect but simple solution is to instead XOR the color with 0xc0, flipping the top two bits.
-            // This preserves the lower 6 bits and so (0x7f) gray gets inverted to light gray (0xbf) instead.
-            // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
-            // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
-            // in case of ClearType specifically, this would break the red/blue shift on the edges.
-            /*if (p.s->cursor->cursorColor == INVALID_COLOR)
+            for (const auto& m : row.mappings)
             {
-                static constexpr auto invertColor = [](u32 color) -> u32 {
-                    return color ^ 0xc0c0c0;
-                };
-                static constexpr auto intersect = [](const f32r& clip, f32r& r) {
-                    r.left = std::max(clip.left, r.left);
-                    r.right = std::min(clip.right, r.right);
-                    r.top = std::max(clip.top, r.top);
-                    r.bottom = std::min(clip.bottom, r.bottom);
-                    return r.left < r.right && r.top < r.bottom;
-                };
-
-                // TODO: when inverting wide glyphs we should look up the color of each cell from .left to .right
-                const auto idx = p.cursorRect.top * p.s->cellCount.y + p.cursorRect.left;
-                const auto backgroundColor = p.backgroundBitmap[idx];
-                const auto backgroundColorInv = invertColor(backgroundColor);
-                _appendRect(rect, backgroundColorInv, ShadingType::SolidFill);
-
-                for (size_t i = 0, l = _vertexInstanceData.size() - 1; i < l; ++i)
+                for (auto i = m.glyphsFrom; i < m.glyphsTo; ++i)
                 {
-                    const auto& ref = _vertexInstanceData[i];
-                    const auto& refrect = ref.rect;
-                    f32r refrect2{ refrect.x, refrect.y, refrect.x + refrect.z, refrect.y + refrect.w };
-
-                    if (intersect(rect2, refrect2))
+                    bool inserted = false;
+                    auto& entry = _glyphCache.FindOrInsert(m.fontFace.get(), row.glyphIndices[i], inserted);
+                    if (inserted)
                     {
-                        auto copy = ref;
-                        copy.rect.x = refrect2.left;
-                        copy.rect.y = refrect2.top;
-                        copy.rect.z = refrect2.right - refrect2.left;
-                        copy.rect.w = refrect2.bottom - refrect2.top;
-                        copy.tex.x += copy.rect.x - ref.rect.x;
-                        copy.tex.y += copy.rect.y - ref.rect.y;
-                        copy.tex.z = copy.rect.z;
-                        copy.tex.w = copy.rect.w;
-                        copy.color = invertColor(copy.color);
-                        copy.shadingType = copy.shadingType == ShadingType::Passthrough ? ShadingType::PassthroughInvert : copy.shadingType;
-                        _vertexInstanceData.emplace_back(copy);
+                        _beginDrawing();
+
+                        if (!_drawGlyph(p, entry, m.fontEmSize))
+                        {
+                            _endDrawing();
+                            _flushRects(p);
+                            _resetAtlasAndBeginDraw(p);
+                            --i;
+                            continue;
+                        }
                     }
+
+                    if (entry.shadingType)
+                    {
+                        const auto x = (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
+                        const auto y = (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
+                        const auto w = entry.texcoord.z - entry.texcoord.x;
+                        const auto h = entry.texcoord.w - entry.texcoord.y;
+                        _appendRect({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
+                    }
+
+                    cumulativeAdvance += row.glyphAdvances[i];
                 }
             }
-            else*/
-            {
-                _appendRect(rect, p.s->cursor->cursorColor, ShadingType::SolidFill);
-            }
 
-            // TODO hole punching if 0x00000000
+            baselineY += p.d.font.cellSizeDIP.y;
         }
 
-        // Selection
+        _endDrawing();
+    }
+
+    // Gridlines
+    {
+        size_t y = 0;
+        for (const auto& row : p.rows)
         {
-            size_t y = 0;
-            for (const auto& row : p.rows)
+            if (!row.gridLineRanges.empty())
             {
-                if (row.selectionTo > row.selectionFrom)
+                _drawGridlines(p, row, y);
+            }
+            y++;
+        }
+    }
+
+    // Cursor
+    if (p.cursorRect.non_empty())
+    {
+        const auto color = 0x00000000u; // p.s->cursor->cursorColor;
+        f32x4 rect{
+            static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
+            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
+            static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
+            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
+        };
+
+        // Cursors that are 0xffffffff invert the color they're on. The problem is that the inversion
+        // of a pure gray background color (0x7f) is also gray and so the cursor would appear invisible.
+        // An imperfect but simple solution is to instead XOR the color with 0xc0, flipping the top two bits.
+        // This preserves the lower 6 bits and so gray (0x7f) gets inverted to light gray (0xbf) instead.
+        // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
+        // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
+        // in case of ClearType specifically, this would break the red/blue shift on the edges.
+        //
+        // Cursors that are 0x00000000 punch transparent holes into the viewport.
+        if (color == 0xffffffff || color == 0x00000000)
+        {
+            _flushRects(p);
+            _deviceContext->OMSetBlendState(_blendStateSpecialCursors.get(), nullptr, 0xffffffff);
+            _appendRect(rect, color, ShadingType::SolidFill);
+            _flushRects(p);
+            _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
+        }
+        else
+        {
+            _appendRect(rect, color, ShadingType::SolidFill);
+        }
+
+        // TODO hole punching if 0x00000000
+    }
+
+    // Selection
+    {
+        size_t y = 0;
+        u16 lastFrom = 0;
+        u16 lastTo = 0;
+
+        for (const auto& row : p.rows)
+        {
+            if (row.selectionTo > row.selectionFrom)
+            {
+                // If the current selection line matches the previous one, we can just extend the previous quad downwards.
+                // The way this is implemented isn't very smart, but we also don't have very many rows to iterate through.
+                if (row.selectionFrom == lastFrom && row.selectionTo == lastTo)
+                {
+                    auto& lastSelection = _instances[_instancesSize - 1];
+                    lastSelection.position.w = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+                }
+                else
                 {
                     _appendRect(
                         {
@@ -504,15 +485,16 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         },
                         p.s->misc->selectionColor,
                         ShadingType::SolidFill);
+                    lastFrom = row.selectionFrom;
+                    lastTo = row.selectionTo;
                 }
-
-                y++;
             }
-        }
 
-        _flushRects(p);
+            y++;
+        }
     }
 
+    _flushRects(p);
     _swapChainManager.Present(p);
 }
 
@@ -1051,6 +1033,7 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     auto box = getGlyphRunBlackBox(glyphRun, 0, 0);
     if (box.left >= box.right || box.top >= box.bottom)
     {
+        entry = {};
         return true;
     }
 
@@ -1081,6 +1064,133 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     entry.texcoord.z = static_cast<f32>(rect.x + rect.w);
     entry.texcoord.w = static_cast<f32>(rect.y + rect.h);
     return true;
+}
+
+void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& row, size_t y)
+{
+    for (const auto& r : row.gridLineRanges)
+    {
+        // AtlasEngine.cpp shouldn't add any gridlines if they don't do anything.
+        assert(r.lines.any());
+
+        const auto top = static_cast<f32>(p.s->font->cellSize.y * y);
+        const auto bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+        auto left = static_cast<f32>(p.s->font->cellSize.x * r.from);
+        auto right = static_cast<f32>(p.s->font->cellSize.x * r.to);
+
+        if (r.lines.test(GridLines::Left))
+        {
+            for (; left < right; left += p.s->font->cellSize.x)
+            {
+                _appendRect(
+                    {
+                        left,
+                        top,
+                        left + p.s->font->thinLineWidth,
+                        bottom,
+                    },
+                    r.color,
+                    ShadingType::SolidFill);
+            }
+        }
+        if (r.lines.test(GridLines::Top))
+        {
+            _appendRect(
+                {
+                    left,
+                    top,
+                    right,
+                    top + static_cast<f32>(p.s->font->thinLineWidth),
+                },
+                r.color,
+                ShadingType::SolidFill);
+        }
+        if (r.lines.test(GridLines::Right))
+        {
+            for (; right > left; right -= p.s->font->cellSize.x)
+            {
+                _appendRect(
+                    {
+                        right - p.s->font->thinLineWidth,
+                        top,
+                        right,
+                        bottom,
+                    },
+                    r.color,
+                    ShadingType::SolidFill);
+            }
+        }
+        if (r.lines.test(GridLines::Bottom))
+        {
+            _appendRect(
+                {
+                    left,
+                    bottom - p.s->font->thinLineWidth,
+                    right,
+                    bottom,
+                },
+                r.color,
+                ShadingType::SolidFill);
+        }
+        if (r.lines.test(GridLines::Underline))
+        {
+            _appendRect(
+                {
+                    left,
+                    top + p.s->font->underlinePos,
+                    right,
+                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
+                },
+                r.color,
+                ShadingType::SolidFill);
+        }
+        if (r.lines.test(GridLines::HyperlinkUnderline))
+        {
+            _appendRect(
+                {
+                    left,
+                    top + p.s->font->underlinePos,
+                    right,
+                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
+                },
+                r.color,
+                ShadingType::DashedLine);
+        }
+        if (r.lines.test(GridLines::DoubleUnderline))
+        {
+            _appendRect(
+                {
+                    left,
+                    top + p.s->font->doubleUnderlinePos.x,
+                    right,
+                    top + p.s->font->doubleUnderlinePos.x + p.s->font->thinLineWidth,
+                },
+                r.color,
+                ShadingType::SolidFill);
+
+            _appendRect(
+                {
+                    left,
+                    top + p.s->font->doubleUnderlinePos.y,
+                    right,
+                    top + p.s->font->doubleUnderlinePos.y + p.s->font->thinLineWidth,
+                },
+                r.color,
+                ShadingType::SolidFill);
+        }
+        if (r.lines.test(GridLines::Strikethrough))
+        {
+            _appendRect(
+                {
+                    left,
+                    top + p.s->font->strikethroughPos,
+                    right,
+                    top + p.s->font->strikethroughPos + p.s->font->strikethroughWidth,
+                },
+                r.color,
+                ShadingType::SolidFill);
+        }
+    }
 }
 
 TIL_FAST_MATH_END

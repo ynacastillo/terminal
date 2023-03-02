@@ -1,8 +1,7 @@
 #pragma once
 
-#include <dxgi1_6.h>
 #include <d2d1_3.h>
-#include <d3d11_1.h>
+#include <d3d11_2.h>
 #include <dwrite_3.h>
 
 #include <til/generational.h>
@@ -288,6 +287,8 @@ namespace Microsoft::Console::Render::Atlas
         bool useSoftwareRendering = false;
     };
 
+    inline constexpr auto DefaultAntialiasingMode = D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE;
+
     struct FontSettings
     {
         wil::com_ptr<IDWriteFontCollection> fontCollection;
@@ -307,7 +308,7 @@ namespace Microsoft::Console::Render::Atlas
         u16x2 doubleUnderlinePos;
         u16 thinLineWidth = 0;
         u16 dpi = 96;
-        u8 antialiasingMode = D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE;
+        u8 antialiasingMode = DefaultAntialiasingMode;
     };
 
     struct CursorSettings
