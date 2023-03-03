@@ -36,7 +36,7 @@ Output main(PSData data) : SV_Target
         break;
     case SHADING_TYPE_TEXT_GRAYSCALE:
     {
-        // These are independent of the glyph texture and could be moved to the vertex shader.
+        // These are independent of the glyph texture and could be moved to the vertex shader or CPU side of things.
         const float4 foreground = premultiplyColor(data.color);
         const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
         const float intensity = DWrite_CalcColorIntensity(data.color.rgb);
@@ -50,7 +50,7 @@ Output main(PSData data) : SV_Target
     }
     case SHADING_TYPE_TEXT_CLEARTYPE:
     {
-        // These are independent of the glyph texture and could be moved to the vertex shader.
+        // These are independent of the glyph texture and could be moved to the vertex shader or CPU side of things.
         const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
         // These aren't.
         const float4 glyph = glyphAtlas[data.texcoord];

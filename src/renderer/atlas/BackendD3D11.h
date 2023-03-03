@@ -58,11 +58,19 @@ namespace Microsoft::Console::Render::Atlas
             DashedLine,
             SolidFill,
         };
+        
+        struct f32x4s
+        {
+            f32 x{};
+            f32 y{};
+            f32 z{};
+            f32 w{};
+        };
 
         struct alignas(16) QuadInstance
         {
-            alignas(sizeof(f32x4)) f32x4 position;
-            alignas(sizeof(f32x4)) f32x4 texcoord;
+            alignas(sizeof(f32x4s)) f32x4s position;
+            alignas(sizeof(f32x4s)) f32x4s texcoord;
             alignas(sizeof(u32)) u32 color = 0;
             alignas(sizeof(u32)) u32 shadingType = 0;
             alignas(sizeof(u32x2)) u32x2 padding;
@@ -78,7 +86,7 @@ namespace Microsoft::Console::Render::Atlas
             u16 glyphIndex = 0;
             u16 shadingType = 0;
             f32x2 offset;
-            f32x4 texcoord;
+            f32x4s texcoord;
         };
         static_assert(sizeof(GlyphCacheEntry) == 40);
         
@@ -115,8 +123,9 @@ namespace Microsoft::Console::Render::Atlas
         void _beginDrawing();
         void _endDrawing();
         void _resetAtlasAndBeginDraw(const RenderingPayload& p);
-        void _appendRect(f32x4 position, u32 color, ShadingType shadingType);
-        void _appendRect(f32x4 position, f32x4 texcoord, u32 color, ShadingType shadingType);
+        void _appendQuad(f32x4s position, u32 color, ShadingType shadingType);
+        void _appendQuad(f32x4s position, f32x4s texcoord, u32 color, ShadingType shadingType);
+        QuadInstance& _getLastQuad() noexcept;
         __declspec(noinline) void _bumpInstancesSize();
         void _flushRects(const RenderingPayload& p);
         __declspec(noinline) void _recreateInstanceBuffers(const RenderingPayload& p);
@@ -133,7 +142,7 @@ namespace Microsoft::Console::Render::Atlas
         wil::com_ptr<ID3D11VertexShader> _vertexShader;
         wil::com_ptr<ID3D11PixelShader> _pixelShader;
         wil::com_ptr<ID3D11BlendState> _blendState;
-        wil::com_ptr<ID3D11BlendState> _blendStateSpecialCursors;
+        wil::com_ptr<ID3D11BlendState> _blendStateInvert;
         wil::com_ptr<ID3D11Buffer> _vsConstantBuffer;
         wil::com_ptr<ID3D11Buffer> _psConstantBuffer;
         wil::com_ptr<ID3D11InputLayout> _inputLayout;

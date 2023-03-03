@@ -153,6 +153,7 @@ namespace Microsoft::Console::Render::Atlas
 
             if (p.s->target->hwnd)
             {
+                desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
                 THROW_IF_FAILED(p.dxgiFactory->CreateSwapChainForHwnd(device, p.s->target->hwnd, &desc, nullptr, nullptr, swapChain0.addressof()));
             }
             else

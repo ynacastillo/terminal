@@ -141,9 +141,9 @@ void AtlasEngine::_recreateBackend()
     }
 
 #ifndef NDEBUG
-    static constexpr UINT flags = 0;
-#else
     static constexpr UINT flags = DXGI_CREATE_FACTORY_DEBUG;
+#else
+    static constexpr UINT flags = 0;
 #endif
 
     THROW_IF_FAILED(CreateDXGIFactory2(flags, __uuidof(IDXGIFactory3), _p.dxgiFactory.put_void()));

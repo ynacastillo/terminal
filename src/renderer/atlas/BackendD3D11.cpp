@@ -14,6 +14,7 @@ TIL_FAST_MATH_BEGIN
 
 #pragma warning(disable : 4100) // '...': unreferenced formal parameter
 #pragma warning(disable : 4127)
+#pragma warning(disable : 4189)
 // Disable a bunch of warnings which get in the way of writing performant code.
 #pragma warning(disable : 26429) // Symbol 'data' is never tested for nullness, it can be marked as not_null (f.23).
 #pragma warning(disable : 26446) // Prefer to use gsl::at() instead of unchecked subscript operator (bounds.4).
@@ -189,9 +190,9 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
         static constexpr D3D11_BLEND_DESC desc{
             .RenderTarget = { {
                 .BlendEnable = TRUE,
-                .SrcBlend = D3D11_BLEND_INV_DEST_COLOR,
-                .DestBlend = D3D11_BLEND_ZERO,
-                .BlendOp = D3D11_BLEND_OP_ADD,
+                .SrcBlend = D3D11_BLEND_ONE,
+                .DestBlend = D3D11_BLEND_ONE,
+                .BlendOp = D3D11_BLEND_OP_SUBTRACT,
                 // In order for D3D to be okay with us using dual source blending in the shader, we need to use dual
                 // source blending in the blend state. Alternatively we could write an extra shader for these cursors.
                 .SrcBlendAlpha = D3D11_BLEND_SRC1_ALPHA,
@@ -200,7 +201,7 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
                 .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
             } },
         };
-        THROW_IF_FAILED(_device->CreateBlendState(&desc, _blendStateSpecialCursors.addressof()));
+        THROW_IF_FAILED(_device->CreateBlendState(&desc, _blendStateInvert.addressof()));
     }
 
 #ifndef NDEBUG
@@ -349,7 +350,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
         const auto targetHeight = static_cast<f32>(p.s->targetSize.y);
         const auto contentWidth = static_cast<f32>(p.s->cellCount.x * p.s->font->cellSize.x);
         const auto contentHeight = static_cast<f32>(p.s->cellCount.y * p.s->font->cellSize.y);
-        _appendRect(
+        _appendQuad(
             { 0.0f, 0.0f, targetWidth, targetHeight },
             { 0.0f, 0.0f, targetWidth / contentWidth, targetHeight / contentHeight },
             0,
@@ -395,7 +396,7 @@ void BackendD3D11::Render(const RenderingPayload& p)
                         const auto y = (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
                         const auto w = entry.texcoord.z - entry.texcoord.x;
                         const auto h = entry.texcoord.w - entry.texcoord.y;
-                        _appendRect({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
+                        _appendQuad({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
                     }
 
                     cumulativeAdvance += row.glyphAdvances[i];
@@ -424,37 +425,112 @@ void BackendD3D11::Render(const RenderingPayload& p)
     // Cursor
     if (p.cursorRect.non_empty())
     {
-        const auto color = 0x00000000u; // p.s->cursor->cursorColor;
-        f32x4 rect{
-            static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
-            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
-            static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
-            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
-        };
+        const auto color = p.s->cursor->cursorColor;
 
         // Cursors that are 0xffffffff invert the color they're on. The problem is that the inversion
         // of a pure gray background color (0x7f) is also gray and so the cursor would appear invisible.
+        //
         // An imperfect but simple solution is to instead XOR the color with 0xc0, flipping the top two bits.
         // This preserves the lower 6 bits and so gray (0x7f) gets inverted to light gray (0xbf) instead.
         // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
         // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
         // in case of ClearType specifically, this would break the red/blue shift on the edges.
         //
-        // Cursors that are 0x00000000 punch transparent holes into the viewport.
-        if (color == 0xffffffff || color == 0x00000000)
+        // The alternative approach chosen here does a regular linear inversion (1 - RGB), but checks the
+        // background color of all cells the cursor is on and darkens it if any of them could be considered "gray".
+        if (color == 0xffffffff)
         {
             _flushRects(p);
-            _deviceContext->OMSetBlendState(_blendStateSpecialCursors.get(), nullptr, 0xffffffff);
-            _appendRect(rect, color, ShadingType::SolidFill);
+            _deviceContext->OMSetBlendState(_blendStateInvert.get(), nullptr, 0xffffffff);
+
+            const auto y = p.cursorRect.top * p.s->cellCount.x;
+            const auto left = p.cursorRect.left;
+            const auto right = p.cursorRect.right;
+            u32 lastColor = 0;
+
+            for (auto x = left; x < right; ++x)
+            {
+                const auto bgReg = p.backgroundBitmap[y + x] | 0xff000000;
+
+                // If the current background color matches the previous one, we can just extend the previous quad to the right.
+                if (bgReg == lastColor)
+                {
+                    _getLastQuad().position.z = static_cast<f32>(p.s->font->cellSize.x * (x + 1));
+                }
+                else
+                {
+                    const auto bgInv = ~bgReg;
+                    // gte = greater than or equal, lte = lower than or equal
+                    const auto gte70 = ((bgReg & 0x7f7f7f) + 0x101010 | bgReg) & 0x808080;
+                    const auto lte8f = ((bgInv & 0x7f7f7f) + 0x101010 | bgInv) & 0x808080;
+                    // isGray will now be true if all 3 channels of the color are in the range [0x70,0x8f].
+                    const auto isGray = (gte70 & lte8f) == 0x808080;
+                    // The shader will invert the color by calculating `cursorColor - rendertTargetColor`, where
+                    // `rendertTargetColor` is the color already in the render target view (= all the text, etc.).
+                    // To avoid the issue mentioned above, we want to darken the color by -32 in each channel.
+                    // To do so we can just pass it a corresponding `cursorColor` in the range [0xc0,0xff].
+                    // Since the [0xc0,0xff] range is twice as large as [0x70,0x8f], we multiply by 2.
+                    const auto cursorColor = isGray ? 0xffc0c0c0 + 2 * (bgReg - 0xff707070) : 0xffffffff;
+
+                    f32x4s rect{
+                        static_cast<f32>(p.s->font->cellSize.x * x),
+                        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
+                        static_cast<f32>(p.s->font->cellSize.x * (x + 1)),
+                        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
+                    };
+
+                    switch (static_cast<CursorType>(p.s->cursor->cursorType))
+                    {
+                    case CursorType::Legacy:
+                        rect.y = rect.w - (rect.w - rect.y) * static_cast<float>(p.s->cursor->heightPercentage) / 100.0f;
+                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
+                        break;
+                    case CursorType::VerticalBar:
+                        rect.z = rect.x + p.s->font->thinLineWidth;
+                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
+                        break;
+                    case CursorType::Underscore:
+                        rect.y += p.s->font->underlinePos;
+                        rect.w = rect.y + p.s->font->underlineWidth;
+                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
+                        break;
+                    case CursorType::EmptyBox:
+                        break;
+                    case CursorType::FullBox:
+                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
+                        break;
+                    case CursorType::DoubleUnderscore:
+                    {
+                        auto rect2 = rect;
+                        rect.y += p.s->font->doubleUnderlinePos.x;
+                        rect.w = rect.y + p.s->font->thinLineWidth;
+                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
+                        rect2.y += p.s->font->doubleUnderlinePos.y;
+                        rect2.w = rect.y + p.s->font->thinLineWidth;
+                        _appendQuad(rect2, cursorColor, ShadingType::SolidFill);
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+
+                    lastColor = bgReg;
+                }
+            }
+
             _flushRects(p);
             _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
         }
         else
         {
-            _appendRect(rect, color, ShadingType::SolidFill);
+            const f32x4s rect{
+                static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
+                static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
+                static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
+                static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
+            };
+            _appendQuad(rect, color, ShadingType::SolidFill);
         }
-
-        // TODO hole punching if 0x00000000
     }
 
     // Selection
@@ -471,12 +547,11 @@ void BackendD3D11::Render(const RenderingPayload& p)
                 // The way this is implemented isn't very smart, but we also don't have very many rows to iterate through.
                 if (row.selectionFrom == lastFrom && row.selectionTo == lastTo)
                 {
-                    auto& lastSelection = _instances[_instancesSize - 1];
-                    lastSelection.position.w = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+                    _getLastQuad().position.w = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
                 }
                 else
                 {
-                    _appendRect(
+                    _appendQuad(
                         {
                             static_cast<f32>(p.s->font->cellSize.x * row.selectionFrom),
                             static_cast<f32>(p.s->font->cellSize.y * y),
@@ -881,12 +956,12 @@ void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
     _d2dRenderTarget->Clear();
 }
 
-void BackendD3D11::_appendRect(f32x4 position, u32 color, ShadingType shadingType)
+void BackendD3D11::_appendQuad(f32x4s position, u32 color, ShadingType shadingType)
 {
-    _appendRect(position, {}, color, shadingType);
+    _appendQuad(position, {}, color, shadingType);
 }
 
-void BackendD3D11::_appendRect(f32x4 position, f32x4 texcoord, u32 color, ShadingType shadingType)
+void BackendD3D11::_appendQuad(f32x4s position, f32x4s texcoord, u32 color, ShadingType shadingType)
 {
     if (_instancesSize >= _instances.size())
     {
@@ -894,6 +969,12 @@ void BackendD3D11::_appendRect(f32x4 position, f32x4 texcoord, u32 color, Shadin
     }
 
     _instances[_instancesSize++] = QuadInstance{ position, texcoord, color, static_cast<u32>(shadingType) };
+}
+
+BackendD3D11::QuadInstance& BackendD3D11::_getLastQuad() noexcept
+{
+    assert(_instancesSize != 0);
+    return _instances[_instancesSize - 1];
 }
 
 void BackendD3D11::_bumpInstancesSize()
@@ -1082,7 +1163,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         {
             for (; left < right; left += p.s->font->cellSize.x)
             {
-                _appendRect(
+                _appendQuad(
                     {
                         left,
                         top,
@@ -1095,7 +1176,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         }
         if (r.lines.test(GridLines::Top))
         {
-            _appendRect(
+            _appendQuad(
                 {
                     left,
                     top,
@@ -1109,7 +1190,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         {
             for (; right > left; right -= p.s->font->cellSize.x)
             {
-                _appendRect(
+                _appendQuad(
                     {
                         right - p.s->font->thinLineWidth,
                         top,
@@ -1122,7 +1203,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         }
         if (r.lines.test(GridLines::Bottom))
         {
-            _appendRect(
+            _appendQuad(
                 {
                     left,
                     bottom - p.s->font->thinLineWidth,
@@ -1134,7 +1215,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         }
         if (r.lines.test(GridLines::Underline))
         {
-            _appendRect(
+            _appendQuad(
                 {
                     left,
                     top + p.s->font->underlinePos,
@@ -1146,7 +1227,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         }
         if (r.lines.test(GridLines::HyperlinkUnderline))
         {
-            _appendRect(
+            _appendQuad(
                 {
                     left,
                     top + p.s->font->underlinePos,
@@ -1158,7 +1239,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         }
         if (r.lines.test(GridLines::DoubleUnderline))
         {
-            _appendRect(
+            _appendQuad(
                 {
                     left,
                     top + p.s->font->doubleUnderlinePos.x,
@@ -1168,7 +1249,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
                 r.color,
                 ShadingType::SolidFill);
 
-            _appendRect(
+            _appendQuad(
                 {
                     left,
                     top + p.s->font->doubleUnderlinePos.y,
@@ -1180,7 +1261,7 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
         }
         if (r.lines.test(GridLines::Strikethrough))
         {
-            _appendRect(
+            _appendQuad(
                 {
                     left,
                     top + p.s->font->strikethroughPos,
