@@ -1,8 +1,7 @@
 #pragma once
 
-#include <d2d1_3.h>
-#include <d3d11_2.h>
 #include <dwrite_3.h>
+#include <dxgi1_2.h>
 
 #include <til/generational.h>
 
@@ -419,7 +418,7 @@ namespace Microsoft::Console::Render::Atlas
         std::function<void(HANDLE)> swapChainChangedCallback;
 
         // Parameters which are constant for the existence of the backend.
-        wil::com_ptr<IDXGIFactory3> dxgiFactory;
+        wil::com_ptr<IDXGIFactory2> dxgiFactory;
 
         // Parameters which change seldom.
         til::generational<Settings> s;

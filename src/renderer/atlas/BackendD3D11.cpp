@@ -225,33 +225,8 @@ void BackendD3D11::Render(const RenderingPayload& p)
 
     _instancesSize = 0;
 
-    {
-        // IA: Input Assembler
-        _deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        _deviceContext->IASetIndexBuffer(_indexBuffer.get(), _indicesFormat, 0);
-
-        // VS: Vertex Shader
-        _deviceContext->VSSetShader(_vertexShader.get(), nullptr, 0);
-        _deviceContext->VSSetConstantBuffers(0, 1, _vsConstantBuffer.addressof());
-        _deviceContext->VSSetShaderResources(0, 1, _instanceBufferView.addressof());
-
-        // RS: Rasterizer Stage
-        D3D11_VIEWPORT viewport{};
-        viewport.Width = static_cast<f32>(p.s->targetSize.x);
-        viewport.Height = static_cast<f32>(p.s->targetSize.y);
-        _deviceContext->RSSetViewports(1, &viewport);
-
-        // PS: Pixel Shader
-        ID3D11ShaderResourceView* const resources[]{ _backgroundBitmapView.get(), _glyphAtlasView.get() };
-        _deviceContext->PSSetShader(_pixelShader.get(), nullptr, 0);
-        _deviceContext->PSSetConstantBuffers(0, 1, _psConstantBuffer.addressof());
-        _deviceContext->PSSetSamplers(0, 1, _backgroundBitmapSamplerState.addressof());
-        _deviceContext->PSSetShaderResources(0, 2, &resources[0]);
-
-        // OM: Output Merger
-        _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
-        _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
-    }
+    // After a Present() the render target becomes unbound.
+    _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
 
     _drawBackground(p);
     _drawText(p);
@@ -367,11 +342,11 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
         [this]() {
             _renderTargetView.reset();
             _deviceContext->ClearState();
+            _deviceContext->Flush();
         },
         [this]() {
             _renderTargetView.reset();
             _deviceContext->ClearState();
-            _deviceContext->Flush();
         });
 
     if (!_renderTargetView)
@@ -388,7 +363,7 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
     if (fontChanged)
     {
         DWrite_GetRenderParams(p.dwriteFactory.get(), &_gamma, &_cleartypeEnhancedContrast, &_grayscaleEnhancedContrast, _textRenderingParams.put());
-        _resetGlyphAtlas = true;
+        _resetGlyphAtlasNeeded = true;
 
         if (_d2dRenderTarget)
         {
@@ -416,6 +391,8 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
     {
         _recreateConstBuffer(p);
     }
+
+    _setupDeviceContextState(p);
 
     _generation = p.s.generation();
     _fontGeneration = p.s->font.generation();
@@ -638,6 +615,35 @@ void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
     }
 }
 
+void BackendD3D11::_setupDeviceContextState(const RenderingPayload& p)
+{
+    // IA: Input Assembler
+    _deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    _deviceContext->IASetIndexBuffer(_indexBuffer.get(), _indicesFormat, 0);
+
+    // VS: Vertex Shader
+    _deviceContext->VSSetShader(_vertexShader.get(), nullptr, 0);
+    _deviceContext->VSSetConstantBuffers(0, 1, _vsConstantBuffer.addressof());
+    _deviceContext->VSSetShaderResources(0, 1, _instanceBufferView.addressof());
+
+    // RS: Rasterizer Stage
+    D3D11_VIEWPORT viewport{};
+    viewport.Width = static_cast<f32>(p.s->targetSize.x);
+    viewport.Height = static_cast<f32>(p.s->targetSize.y);
+    _deviceContext->RSSetViewports(1, &viewport);
+
+    // PS: Pixel Shader
+    ID3D11ShaderResourceView* const resources[]{ _backgroundBitmapView.get(), _glyphAtlasView.get() };
+    _deviceContext->PSSetShader(_pixelShader.get(), nullptr, 0);
+    _deviceContext->PSSetConstantBuffers(0, 1, _psConstantBuffer.addressof());
+    _deviceContext->PSSetSamplers(0, 1, _backgroundBitmapSamplerState.addressof());
+    _deviceContext->PSSetShaderResources(0, 2, &resources[0]);
+
+    // OM: Output Merger
+    _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
+    _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
+}
+
 void BackendD3D11::_d2dBeginDrawing()
 {
     if (!_d2dBeganDrawing)
@@ -656,7 +662,7 @@ void BackendD3D11::_d2dEndDrawing()
     }
 }
 
-void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
+void BackendD3D11::_resetGlyphAtlasAndBeginDraw(const RenderingPayload& p)
 {
     // This block of code calculates the size of a power-of-2 texture that has an area larger than the targetSize
     // of the swap chain. In other words for a 985x1946 pixel swap chain (area = 1916810) it would result in a u/v
@@ -903,10 +909,10 @@ void BackendD3D11::_drawBackground(const RenderingPayload& p)
 
 void BackendD3D11::_drawText(const RenderingPayload& p)
 {
-    if (_resetGlyphAtlas)
+    if (_resetGlyphAtlasNeeded)
     {
-        _resetAtlasAndBeginDraw(p);
-        _resetGlyphAtlas = false;
+        _resetGlyphAtlasAndBeginDraw(p);
+        _resetGlyphAtlasNeeded = false;
     }
 
     auto baselineY = p.s->font->baselineInDIP;
@@ -928,7 +934,7 @@ void BackendD3D11::_drawText(const RenderingPayload& p)
                     {
                         _d2dEndDrawing();
                         _flushQuads(p);
-                        _resetAtlasAndBeginDraw(p);
+                        _resetGlyphAtlasAndBeginDraw(p);
                         --i;
                         continue;
                     }

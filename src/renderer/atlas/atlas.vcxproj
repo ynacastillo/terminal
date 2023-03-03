@@ -13,6 +13,7 @@
   <ItemGroup>
     <ClCompile Include="AtlasEngine.api.cpp" />
     <ClCompile Include="AtlasEngine.r.cpp" />
+    <ClCompile Include="Backend.cpp" />
     <ClCompile Include="BackendD2D.cpp" />
     <ClCompile Include="BackendD3D11.cpp" />
     <ClCompile Include="dwrite.cpp" />

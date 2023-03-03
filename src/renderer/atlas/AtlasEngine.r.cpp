@@ -4,7 +4,6 @@
 #include "pch.h"
 #include "AtlasEngine.h"
 
-#include "Backend.h"
 #include "BackendD2D.h"
 #include "BackendD3D11.h"
 
@@ -17,7 +16,6 @@
 // The _api fields on the other hand are concurrently written to by others.
 
 #pragma warning(disable : 4100) // '...': unreferenced formal parameter
-#pragma warning(disable : 4127)
 // Disable a bunch of warnings which get in the way of writing performant code.
 #pragma warning(disable : 26429) // Symbol 'data' is never tested for nullness, it can be marked as not_null (f.23).
 #pragma warning(disable : 26446) // Prefer to use gsl::at() instead of unchecked subscript operator (bounds.4).
@@ -132,9 +130,9 @@ void AtlasEngine::_recreateBackend()
 
     // Tell the OS that we're resilient to graphics device removal. Docs say:
     // > This function should be called once per process and before any device creation.
-    if (const wil::unique_hmodule module{ LoadLibraryExW(L"dxgi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32) })
+    if (const auto module = GetModuleHandleW(L"dxgi.dll"))
     {
-        if (const auto func = GetProcAddressByFunctionDeclaration(module.get(), DXGIDeclareAdapterRemovalSupport))
+        if (const auto func = GetProcAddressByFunctionDeclaration(module, DXGIDeclareAdapterRemovalSupport))
         {
             func();
         }
@@ -146,7 +144,7 @@ void AtlasEngine::_recreateBackend()
     static constexpr UINT flags = 0;
 #endif
 
-    THROW_IF_FAILED(CreateDXGIFactory2(flags, __uuidof(IDXGIFactory3), _p.dxgiFactory.put_void()));
+    THROW_IF_FAILED(CreateDXGIFactory2(flags, __uuidof(_p.dxgiFactory), _p.dxgiFactory.put_void()));
 
     auto d2dMode = debugForceD2DMode;
     auto deviceFlags = D3D11_CREATE_DEVICE_SINGLETHREADED

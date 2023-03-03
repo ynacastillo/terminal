@@ -113,9 +113,10 @@ namespace Microsoft::Console::Render::Atlas
         void _recreateBackgroundBitmapSamplerState(const RenderingPayload& p);
         void _recreateBackgroundColorBitmap(const RenderingPayload& p);
         void _recreateConstBuffer(const RenderingPayload& p);
+        void _setupDeviceContextState(const RenderingPayload& p);
         void _d2dBeginDrawing();
         void _d2dEndDrawing();
-        void _resetAtlasAndBeginDraw(const RenderingPayload& p);
+        void _resetGlyphAtlasAndBeginDraw(const RenderingPayload& p);
         QuadInstance& _getLastQuad() noexcept;
         void _appendQuad(f32r position, u32 color, ShadingType shadingType);
         void _appendQuad(f32r position, f32r texcoord, u32 color, ShadingType shadingType);
@@ -134,8 +135,8 @@ namespace Microsoft::Console::Render::Atlas
 
         SwapChainManager _swapChainManager;
 
-        wil::com_ptr<ID3D11Device1> _device;
-        wil::com_ptr<ID3D11DeviceContext1> _deviceContext;
+        wil::com_ptr<ID3D11Device2> _device;
+        wil::com_ptr<ID3D11DeviceContext2> _deviceContext;
         wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
         
         wil::com_ptr<ID3D11VertexShader> _vertexShader;
@@ -175,7 +176,7 @@ namespace Microsoft::Console::Render::Atlas
         wil::com_ptr<ID2D1DeviceContext4> _d2dRenderTarget4; // Optional. Supported since Windows 10 14393.
         wil::com_ptr<ID2D1SolidColorBrush> _brush;
         bool _d2dBeganDrawing = false;
-        bool _resetGlyphAtlas = false;
+        bool _resetGlyphAtlasNeeded = false;
 
         float _gamma = 0;
         float _cleartypeEnhancedContrast = 0;

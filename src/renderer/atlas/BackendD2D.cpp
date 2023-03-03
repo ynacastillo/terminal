@@ -20,21 +20,23 @@ BackendD2D::BackendD2D(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D11De
 
 void BackendD2D::Render(const RenderingPayload& p)
 {
-    _swapChainManager.UpdateSwapChainSettings(
-        p,
-        _device.get(),
-        [this]() {
-            _d2dRenderTarget.reset();
-            _deviceContext->ClearState();
-        },
-        [this]() {
-            _d2dRenderTarget.reset();
-            _deviceContext->ClearState();
-            _deviceContext->Flush();
-        });
-
     if (_generation != p.s.generation())
     {
+        _swapChainManager.UpdateSwapChainSettings(
+            p,
+            _device.get(),
+            [this]() {
+                _d2dRenderTarget.reset();
+                _d2dRenderTarget4.reset();
+                _deviceContext->ClearState();
+                _deviceContext->Flush();
+            },
+            [this]() {
+                _d2dRenderTarget.reset();
+                _d2dRenderTarget4.reset();
+                _deviceContext->ClearState();
+            });
+
         if (!_d2dRenderTarget)
         {
             {
@@ -82,6 +84,8 @@ void BackendD2D::Render(const RenderingPayload& p)
                 THROW_IF_FAILED(_d2dRenderTarget->CreateBitmap(size, nullptr, 0, &props, _d2dBackgroundBitmap.put()));
                 THROW_IF_FAILED(_d2dRenderTarget->CreateBitmapBrush(_d2dBackgroundBitmap.get(), _d2dBackgroundBrush.put()));
                 _d2dBackgroundBrush->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+                _d2dBackgroundBrush->SetExtendModeX(D2D1_EXTEND_MODE_MIRROR);
+                _d2dBackgroundBrush->SetExtendModeY(D2D1_EXTEND_MODE_MIRROR);
                 _d2dBackgroundBrush->SetTransform(&transform);
             }
         }
@@ -93,8 +97,8 @@ void BackendD2D::Render(const RenderingPayload& p)
 
     _d2dRenderTarget->BeginDraw();
     {
-        // Let's say the terminal is 120x30 cells and 1200x600 pixels large respectively.
-        // This draws the background color by upscaling a 120x30 pixel bitmap to fill the 1200x600 pixel render target.
+        // If the terminal was 120x30 cells and 1200x600 pixels large, this would draw the
+        // background by upscaling a 120x30 pixel bitmap to fill the entire render target.
         {
             _d2dRenderTarget->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
             const D2D1_RECT_F rect{ 0, 0, p.s->cellCount.x * p.d.font.cellSizeDIP.x, p.s->cellCount.y * p.d.font.cellSizeDIP.y };

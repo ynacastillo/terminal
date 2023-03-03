@@ -1,7 +1,5 @@
 #pragma once
 
-#include <d3d11_2.h>
-
 #include "Backend.h"
 
 namespace Microsoft::Console::Render::Atlas
@@ -27,8 +25,8 @@ namespace Microsoft::Console::Render::Atlas
 
         SwapChainManager _swapChainManager;
 
-        wil::com_ptr<ID3D11Device1> _device;
-        wil::com_ptr<ID3D11DeviceContext1> _deviceContext;
+        wil::com_ptr<ID3D11Device2> _device;
+        wil::com_ptr<ID3D11DeviceContext2> _deviceContext;
         wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
         wil::com_ptr<ID3D11RenderTargetView> _renderTargetViewUInt;
 
