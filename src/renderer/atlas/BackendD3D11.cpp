@@ -12,9 +12,6 @@
 
 TIL_FAST_MATH_BEGIN
 
-#pragma warning(disable : 4100) // '...': unreferenced formal parameter
-#pragma warning(disable : 4127)
-#pragma warning(disable : 4189)
 // Disable a bunch of warnings which get in the way of writing performant code.
 #pragma warning(disable : 26429) // Symbol 'data' is never tested for nullness, it can be marked as not_null (f.23).
 #pragma warning(disable : 26446) // Prefer to use gsl::at() instead of unchecked subscript operator (bounds.4).
@@ -217,90 +214,13 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
 #endif
 }
 
-void BackendD3D11::_recreateBackgroundBitmapSamplerState(const RenderingPayload& p)
-{
-    const auto color = colorFromU32Premultiply<DXGI_RGBA>(p.s->misc->backgroundColor);
-    const D3D11_SAMPLER_DESC desc{
-        .Filter = D3D11_FILTER_MIN_MAG_MIP_POINT,
-        .AddressU = D3D11_TEXTURE_ADDRESS_BORDER,
-        .AddressV = D3D11_TEXTURE_ADDRESS_BORDER,
-        .AddressW = D3D11_TEXTURE_ADDRESS_BORDER,
-        .MipLODBias = 0.0f,
-        .MaxAnisotropy = 1,
-        .ComparisonFunc = D3D11_COMPARISON_NEVER,
-        .BorderColor = { color.r, color.g, color.b, color.a },
-        .MinLOD = -FLT_MAX,
-        .MaxLOD = FLT_MAX,
-    };
-    THROW_IF_FAILED(_device->CreateSamplerState(&desc, _backgroundBitmapSamplerState.put()));
-}
-
 void BackendD3D11::Render(const RenderingPayload& p)
 {
     _debugUpdateShaders();
 
     if (_generation != p.s.generation())
     {
-        _swapChainManager.UpdateSwapChainSettings(
-            p,
-            _device.get(),
-            [this]() {
-                _renderTargetView.reset();
-                _deviceContext->ClearState();
-            },
-            [this]() {
-                _renderTargetView.reset();
-                _deviceContext->ClearState();
-                _deviceContext->Flush();
-            });
-
-        if (!_renderTargetView)
-        {
-            const auto buffer = _swapChainManager.GetBuffer();
-            THROW_IF_FAILED(_device->CreateRenderTargetView(buffer.get(), nullptr, _renderTargetView.put()));
-        }
-
-        const auto fontChanged = _fontGeneration != p.s->font.generation();
-        const auto miscChanged = _miscGeneration != p.s->misc.generation();
-        const auto targetSizeChanged = _targetSize != p.s->targetSize;
-        const auto cellCountChanged = _cellCount != p.s->cellCount;
-
-        if (fontChanged)
-        {
-            DWrite_GetRenderParams(p.dwriteFactory.get(), &_gamma, &_cleartypeEnhancedContrast, &_grayscaleEnhancedContrast, _textRenderingParams.put());
-            _resetGlyphAtlas = true;
-
-            if (_d2dRenderTarget)
-            {
-                _d2dRenderTargetUpdateFontSettings(p);
-            }
-        }
-
-        if (miscChanged)
-        {
-            _recreateBackgroundBitmapSamplerState(p);
-            _recreateCustomShader(p);
-        }
-
-        if (cellCountChanged)
-        {
-            _recreateBackgroundColorBitmap(p);
-        }
-
-        if (targetSizeChanged || miscChanged)
-        {
-            _recreateCustomOffscreenTexture(p);
-        }
-
-        if (targetSizeChanged || fontChanged)
-        {
-            _recreateConstBuffer(p);
-        }
-
-        _generation = p.s.generation();
-        _fontGeneration = p.s->font.generation();
-        _miscGeneration = p.s->misc.generation();
-        _cellCount = p.s->cellCount;
+        _handleSettingsUpdate(p);
     }
 
     _instancesSize = 0;
@@ -333,243 +253,13 @@ void BackendD3D11::Render(const RenderingPayload& p)
         _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
     }
 
-    // Background
-    {
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        THROW_IF_FAILED(_deviceContext->Map(_backgroundBitmap.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
-        auto data = static_cast<char*>(mapped.pData);
-        for (size_t i = 0; i < p.s->cellCount.y; ++i)
-        {
-            memcpy(data, p.backgroundBitmap.data() + i * p.s->cellCount.x, p.s->cellCount.x * sizeof(u32));
-            data += mapped.RowPitch;
-        }
-        _deviceContext->Unmap(_backgroundBitmap.get(), 0);
-    }
-    {
-        const auto targetWidth = static_cast<f32>(p.s->targetSize.x);
-        const auto targetHeight = static_cast<f32>(p.s->targetSize.y);
-        const auto contentWidth = static_cast<f32>(p.s->cellCount.x * p.s->font->cellSize.x);
-        const auto contentHeight = static_cast<f32>(p.s->cellCount.y * p.s->font->cellSize.y);
-        _appendQuad(
-            { 0.0f, 0.0f, targetWidth, targetHeight },
-            { 0.0f, 0.0f, targetWidth / contentWidth, targetHeight / contentHeight },
-            0,
-            ShadingType::Background);
-    }
+    _drawBackground(p);
+    _drawText(p);
+    _drawGridlines(p);
+    _drawCursor(p);
+    _drawSelection(p);
 
-    // Text
-    {
-        if (_resetGlyphAtlas)
-        {
-            _resetAtlasAndBeginDraw(p);
-            _resetGlyphAtlas = false;
-        }
-
-        auto baselineY = p.s->font->baselineInDIP;
-        for (const auto& row : p.rows)
-        {
-            f32 cumulativeAdvance = 0;
-
-            for (const auto& m : row.mappings)
-            {
-                for (auto i = m.glyphsFrom; i < m.glyphsTo; ++i)
-                {
-                    bool inserted = false;
-                    auto& entry = _glyphCache.FindOrInsert(m.fontFace.get(), row.glyphIndices[i], inserted);
-                    if (inserted)
-                    {
-                        _beginDrawing();
-
-                        if (!_drawGlyph(p, entry, m.fontEmSize))
-                        {
-                            _endDrawing();
-                            _flushRects(p);
-                            _resetAtlasAndBeginDraw(p);
-                            --i;
-                            continue;
-                        }
-                    }
-
-                    if (entry.shadingType)
-                    {
-                        const auto x = (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
-                        const auto y = (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
-                        const auto w = entry.texcoord.z - entry.texcoord.x;
-                        const auto h = entry.texcoord.w - entry.texcoord.y;
-                        _appendQuad({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
-                    }
-
-                    cumulativeAdvance += row.glyphAdvances[i];
-                }
-            }
-
-            baselineY += p.d.font.cellSizeDIP.y;
-        }
-
-        _endDrawing();
-    }
-
-    // Gridlines
-    {
-        size_t y = 0;
-        for (const auto& row : p.rows)
-        {
-            if (!row.gridLineRanges.empty())
-            {
-                _drawGridlines(p, row, y);
-            }
-            y++;
-        }
-    }
-
-    // Cursor
-    if (p.cursorRect.non_empty())
-    {
-        const auto color = p.s->cursor->cursorColor;
-
-        // Cursors that are 0xffffffff invert the color they're on. The problem is that the inversion
-        // of a pure gray background color (0x7f) is also gray and so the cursor would appear invisible.
-        //
-        // An imperfect but simple solution is to instead XOR the color with 0xc0, flipping the top two bits.
-        // This preserves the lower 6 bits and so gray (0x7f) gets inverted to light gray (0xbf) instead.
-        // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
-        // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
-        // in case of ClearType specifically, this would break the red/blue shift on the edges.
-        //
-        // The alternative approach chosen here does a regular linear inversion (1 - RGB), but checks the
-        // background color of all cells the cursor is on and darkens it if any of them could be considered "gray".
-        if (color == 0xffffffff)
-        {
-            _flushRects(p);
-            _deviceContext->OMSetBlendState(_blendStateInvert.get(), nullptr, 0xffffffff);
-
-            const auto y = p.cursorRect.top * p.s->cellCount.x;
-            const auto left = p.cursorRect.left;
-            const auto right = p.cursorRect.right;
-            u32 lastColor = 0;
-
-            for (auto x = left; x < right; ++x)
-            {
-                const auto bgReg = p.backgroundBitmap[y + x] | 0xff000000;
-
-                // If the current background color matches the previous one, we can just extend the previous quad to the right.
-                if (bgReg == lastColor)
-                {
-                    _getLastQuad().position.z = static_cast<f32>(p.s->font->cellSize.x * (x + 1));
-                }
-                else
-                {
-                    const auto bgInv = ~bgReg;
-                    // gte = greater than or equal, lte = lower than or equal
-                    const auto gte70 = ((bgReg & 0x7f7f7f) + 0x101010 | bgReg) & 0x808080;
-                    const auto lte8f = ((bgInv & 0x7f7f7f) + 0x101010 | bgInv) & 0x808080;
-                    // isGray will now be true if all 3 channels of the color are in the range [0x70,0x8f].
-                    const auto isGray = (gte70 & lte8f) == 0x808080;
-                    // The shader will invert the color by calculating `cursorColor - rendertTargetColor`, where
-                    // `rendertTargetColor` is the color already in the render target view (= all the text, etc.).
-                    // To avoid the issue mentioned above, we want to darken the color by -32 in each channel.
-                    // To do so we can just pass it a corresponding `cursorColor` in the range [0xc0,0xff].
-                    // Since the [0xc0,0xff] range is twice as large as [0x70,0x8f], we multiply by 2.
-                    const auto cursorColor = isGray ? 0xffc0c0c0 + 2 * (bgReg - 0xff707070) : 0xffffffff;
-
-                    f32x4s rect{
-                        static_cast<f32>(p.s->font->cellSize.x * x),
-                        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
-                        static_cast<f32>(p.s->font->cellSize.x * (x + 1)),
-                        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
-                    };
-
-                    switch (static_cast<CursorType>(p.s->cursor->cursorType))
-                    {
-                    case CursorType::Legacy:
-                        rect.y = rect.w - (rect.w - rect.y) * static_cast<float>(p.s->cursor->heightPercentage) / 100.0f;
-                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
-                        break;
-                    case CursorType::VerticalBar:
-                        rect.z = rect.x + p.s->font->thinLineWidth;
-                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
-                        break;
-                    case CursorType::Underscore:
-                        rect.y += p.s->font->underlinePos;
-                        rect.w = rect.y + p.s->font->underlineWidth;
-                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
-                        break;
-                    case CursorType::EmptyBox:
-                        break;
-                    case CursorType::FullBox:
-                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
-                        break;
-                    case CursorType::DoubleUnderscore:
-                    {
-                        auto rect2 = rect;
-                        rect.y += p.s->font->doubleUnderlinePos.x;
-                        rect.w = rect.y + p.s->font->thinLineWidth;
-                        _appendQuad(rect, cursorColor, ShadingType::SolidFill);
-                        rect2.y += p.s->font->doubleUnderlinePos.y;
-                        rect2.w = rect.y + p.s->font->thinLineWidth;
-                        _appendQuad(rect2, cursorColor, ShadingType::SolidFill);
-                        break;
-                    }
-                    default:
-                        break;
-                    }
-
-                    lastColor = bgReg;
-                }
-            }
-
-            _flushRects(p);
-            _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
-        }
-        else
-        {
-            const f32x4s rect{
-                static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
-                static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
-                static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
-                static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
-            };
-            _appendQuad(rect, color, ShadingType::SolidFill);
-        }
-    }
-
-    // Selection
-    {
-        size_t y = 0;
-        u16 lastFrom = 0;
-        u16 lastTo = 0;
-
-        for (const auto& row : p.rows)
-        {
-            if (row.selectionTo > row.selectionFrom)
-            {
-                // If the current selection line matches the previous one, we can just extend the previous quad downwards.
-                // The way this is implemented isn't very smart, but we also don't have very many rows to iterate through.
-                if (row.selectionFrom == lastFrom && row.selectionTo == lastTo)
-                {
-                    _getLastQuad().position.w = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
-                }
-                else
-                {
-                    _appendQuad(
-                        {
-                            static_cast<f32>(p.s->font->cellSize.x * row.selectionFrom),
-                            static_cast<f32>(p.s->font->cellSize.y * y),
-                            static_cast<f32>(p.s->font->cellSize.x * row.selectionTo),
-                            static_cast<f32>(p.s->font->cellSize.y * (y + 1)),
-                        },
-                        p.s->misc->selectionColor,
-                        ShadingType::SolidFill);
-                    lastFrom = row.selectionFrom;
-                    lastTo = row.selectionTo;
-                }
-            }
-
-            y++;
-        }
-    }
-
-    _flushRects(p);
+    _flushQuads(p);
     _swapChainManager.Present(p);
 }
 
@@ -668,6 +358,71 @@ try
 #endif
 }
 CATCH_LOG()
+
+void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
+{
+    _swapChainManager.UpdateSwapChainSettings(
+        p,
+        _device.get(),
+        [this]() {
+            _renderTargetView.reset();
+            _deviceContext->ClearState();
+        },
+        [this]() {
+            _renderTargetView.reset();
+            _deviceContext->ClearState();
+            _deviceContext->Flush();
+        });
+
+    if (!_renderTargetView)
+    {
+        const auto buffer = _swapChainManager.GetBuffer();
+        THROW_IF_FAILED(_device->CreateRenderTargetView(buffer.get(), nullptr, _renderTargetView.put()));
+    }
+
+    const auto fontChanged = _fontGeneration != p.s->font.generation();
+    const auto miscChanged = _miscGeneration != p.s->misc.generation();
+    const auto targetSizeChanged = _targetSize != p.s->targetSize;
+    const auto cellCountChanged = _cellCount != p.s->cellCount;
+
+    if (fontChanged)
+    {
+        DWrite_GetRenderParams(p.dwriteFactory.get(), &_gamma, &_cleartypeEnhancedContrast, &_grayscaleEnhancedContrast, _textRenderingParams.put());
+        _resetGlyphAtlas = true;
+
+        if (_d2dRenderTarget)
+        {
+            _d2dRenderTargetUpdateFontSettings(p);
+        }
+    }
+
+    if (miscChanged)
+    {
+        _recreateBackgroundBitmapSamplerState(p);
+        _recreateCustomShader(p);
+    }
+
+    if (cellCountChanged)
+    {
+        _recreateBackgroundColorBitmap(p);
+    }
+
+    if (targetSizeChanged || miscChanged)
+    {
+        _recreateCustomOffscreenTexture(p);
+    }
+
+    if (targetSizeChanged || fontChanged)
+    {
+        _recreateConstBuffer(p);
+    }
+
+    _generation = p.s.generation();
+    _fontGeneration = p.s->font.generation();
+    _miscGeneration = p.s->misc.generation();
+    _targetSize = p.s->targetSize;
+    _cellCount = p.s->cellCount;
+}
 
 void BackendD3D11::_recreateCustomShader(const RenderingPayload& p)
 {
@@ -843,6 +598,30 @@ void BackendD3D11::_recreateBackgroundColorBitmap(const RenderingPayload& p)
     THROW_IF_FAILED(_device->CreateShaderResourceView(_backgroundBitmap.get(), nullptr, _backgroundBitmapView.addressof()));
 }
 
+void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const
+{
+    _d2dRenderTarget->SetDpi(p.s->font->dpi, p.s->font->dpi);
+    _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(p.s->font->antialiasingMode));
+}
+
+void BackendD3D11::_recreateBackgroundBitmapSamplerState(const RenderingPayload& p)
+{
+    const auto color = colorFromU32Premultiply<DXGI_RGBA>(p.s->misc->backgroundColor);
+    const D3D11_SAMPLER_DESC desc{
+        .Filter = D3D11_FILTER_MIN_MAG_MIP_POINT,
+        .AddressU = D3D11_TEXTURE_ADDRESS_BORDER,
+        .AddressV = D3D11_TEXTURE_ADDRESS_BORDER,
+        .AddressW = D3D11_TEXTURE_ADDRESS_BORDER,
+        .MipLODBias = 0.0f,
+        .MaxAnisotropy = 1,
+        .ComparisonFunc = D3D11_COMPARISON_NEVER,
+        .BorderColor = { color.r, color.g, color.b, color.a },
+        .MinLOD = -FLT_MAX,
+        .MaxLOD = FLT_MAX,
+    };
+    THROW_IF_FAILED(_device->CreateSamplerState(&desc, _backgroundBitmapSamplerState.put()));
+}
+
 void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
 {
     {
@@ -859,13 +638,7 @@ void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
     }
 }
 
-void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const
-{
-    _d2dRenderTarget->SetDpi(p.s->font->dpi, p.s->font->dpi);
-    _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(p.s->font->antialiasingMode));
-}
-
-void BackendD3D11::_beginDrawing()
+void BackendD3D11::_d2dBeginDrawing()
 {
     if (!_d2dBeganDrawing)
     {
@@ -874,7 +647,7 @@ void BackendD3D11::_beginDrawing()
     }
 }
 
-void BackendD3D11::_endDrawing()
+void BackendD3D11::_d2dEndDrawing()
 {
     if (_d2dBeganDrawing)
     {
@@ -941,7 +714,6 @@ void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
         {
             static constexpr D2D1_COLOR_F color{ 1, 1, 1, 1 };
             THROW_IF_FAILED(_d2dRenderTarget->CreateSolidColorBrush(&color, nullptr, _brush.put()));
-            _brushColor = 0xffffffff;
         }
 
         ID3D11ShaderResourceView* const resources[]{ _backgroundBitmapView.get(), _glyphAtlasView.get() };
@@ -952,16 +724,22 @@ void BackendD3D11::_resetAtlasAndBeginDraw(const RenderingPayload& p)
     _rectPackerData = Buffer<stbrp_node>{ u };
     stbrp_init_target(&_rectPacker, u, v, _rectPackerData.data(), gsl::narrow_cast<int>(_rectPackerData.size()));
 
-    _beginDrawing();
+    _d2dBeginDrawing();
     _d2dRenderTarget->Clear();
 }
 
-void BackendD3D11::_appendQuad(f32x4s position, u32 color, ShadingType shadingType)
+BackendD3D11::QuadInstance& BackendD3D11::_getLastQuad() noexcept
+{
+    assert(_instancesSize != 0);
+    return _instances[_instancesSize - 1];
+}
+
+void BackendD3D11::_appendQuad(f32r position, u32 color, ShadingType shadingType)
 {
     _appendQuad(position, {}, color, shadingType);
 }
 
-void BackendD3D11::_appendQuad(f32x4s position, f32x4s texcoord, u32 color, ShadingType shadingType)
+void BackendD3D11::_appendQuad(f32r position, f32r texcoord, u32 color, ShadingType shadingType)
 {
     if (_instancesSize >= _instances.size())
     {
@@ -971,18 +749,12 @@ void BackendD3D11::_appendQuad(f32x4s position, f32x4s texcoord, u32 color, Shad
     _instances[_instancesSize++] = QuadInstance{ position, texcoord, color, static_cast<u32>(shadingType) };
 }
 
-BackendD3D11::QuadInstance& BackendD3D11::_getLastQuad() noexcept
-{
-    assert(_instancesSize != 0);
-    return _instances[_instancesSize - 1];
-}
-
 void BackendD3D11::_bumpInstancesSize()
 {
     _instances = Buffer<QuadInstance>{ std::max<size_t>(1024, _instances.size() << 1) };
 }
 
-void BackendD3D11::_flushRects(const RenderingPayload& p)
+void BackendD3D11::_flushQuads(const RenderingPayload& p)
 {
     if (!_instancesSize)
     {
@@ -1103,6 +875,84 @@ void BackendD3D11::_recreateInstanceBuffers(const RenderingPayload& p)
     _indicesFormat = indicesFormat;
 }
 
+void BackendD3D11::_drawBackground(const RenderingPayload& p)
+{
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        THROW_IF_FAILED(_deviceContext->Map(_backgroundBitmap.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
+        auto data = static_cast<char*>(mapped.pData);
+        for (size_t i = 0; i < p.s->cellCount.y; ++i)
+        {
+            memcpy(data, p.backgroundBitmap.data() + i * p.s->cellCount.x, p.s->cellCount.x * sizeof(u32));
+            data += mapped.RowPitch;
+        }
+        _deviceContext->Unmap(_backgroundBitmap.get(), 0);
+    }
+    {
+        const auto targetWidth = static_cast<f32>(p.s->targetSize.x);
+        const auto targetHeight = static_cast<f32>(p.s->targetSize.y);
+        const auto contentWidth = static_cast<f32>(p.s->cellCount.x * p.s->font->cellSize.x);
+        const auto contentHeight = static_cast<f32>(p.s->cellCount.y * p.s->font->cellSize.y);
+        _appendQuad(
+            { 0.0f, 0.0f, targetWidth, targetHeight },
+            { 0.0f, 0.0f, targetWidth / contentWidth, targetHeight / contentHeight },
+            0,
+            ShadingType::Background);
+    }
+}
+
+void BackendD3D11::_drawText(const RenderingPayload& p)
+{
+    if (_resetGlyphAtlas)
+    {
+        _resetAtlasAndBeginDraw(p);
+        _resetGlyphAtlas = false;
+    }
+
+    auto baselineY = p.s->font->baselineInDIP;
+    for (const auto& row : p.rows)
+    {
+        f32 cumulativeAdvance = 0;
+
+        for (const auto& m : row.mappings)
+        {
+            for (auto i = m.glyphsFrom; i < m.glyphsTo; ++i)
+            {
+                bool inserted = false;
+                auto& entry = _glyphCache.FindOrInsert(m.fontFace.get(), row.glyphIndices[i], inserted);
+                if (inserted)
+                {
+                    _d2dBeginDrawing();
+
+                    if (!_drawGlyph(p, entry, m.fontEmSize))
+                    {
+                        _d2dEndDrawing();
+                        _flushQuads(p);
+                        _resetAtlasAndBeginDraw(p);
+                        --i;
+                        continue;
+                    }
+                }
+
+                if (entry.shadingType)
+                {
+                    const auto x = (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
+                    const auto y = (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
+                    const auto w = entry.texcoord.right - entry.texcoord.left;
+                    const auto h = entry.texcoord.bottom - entry.texcoord.top;
+                    _appendQuad({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
+                }
+
+                cumulativeAdvance += row.glyphAdvances[i];
+            }
+        }
+
+        baselineY += p.d.font.cellSizeDIP.y;
+    }
+
+    _d2dEndDrawing();
+}
+
 bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize)
 {
     DWRITE_GLYPH_RUN glyphRun{};
@@ -1140,14 +990,27 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::Passthrough : (p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType : ShadingType::TextGrayscale));
     entry.offset.x = box.left;
     entry.offset.y = box.top;
-    entry.texcoord.x = static_cast<f32>(rect.x);
-    entry.texcoord.y = static_cast<f32>(rect.y);
-    entry.texcoord.z = static_cast<f32>(rect.x + rect.w);
-    entry.texcoord.w = static_cast<f32>(rect.y + rect.h);
+    entry.texcoord.left = static_cast<f32>(rect.x);
+    entry.texcoord.top = static_cast<f32>(rect.y);
+    entry.texcoord.right = static_cast<f32>(rect.x + rect.w);
+    entry.texcoord.bottom = static_cast<f32>(rect.y + rect.h);
     return true;
 }
 
-void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& row, size_t y)
+void BackendD3D11::_drawGridlines(const RenderingPayload& p)
+{
+    size_t y = 0;
+    for (const auto& row : p.rows)
+    {
+        if (!row.gridLineRanges.empty())
+        {
+            _drawGridlineRow(p, row, y);
+        }
+        y++;
+    }
+}
+
+void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, size_t y)
 {
     for (const auto& r : row.gridLineRanges)
     {
@@ -1271,6 +1134,182 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p, const ShapedRow& ro
                 r.color,
                 ShadingType::SolidFill);
         }
+    }
+}
+
+void BackendD3D11::_drawCursor(const RenderingPayload& p)
+{
+    if (p.cursorRect.non_empty())
+    {
+        const auto color = p.s->cursor->cursorColor;
+        if (color == 0xffffffff)
+        {
+            _drawInvertedCursor(p);
+        }
+        else
+        {
+            _drawColoredCursor(p, color);
+        }
+    }
+}
+
+void BackendD3D11::_drawInvertedCursor(const RenderingPayload& p)
+{
+    // Cursors that are 0xffffffff invert the color they're on. The problem is that the inversion
+    // of a pure gray background color (0x7f) is also gray and so the cursor would appear invisible.
+    //
+    // An imperfect but simple solution is to instead XOR the color with 0xc0, flipping the top two bits.
+    // This preserves the lower 6 bits and so gray (0x7f) gets inverted to light gray (0xbf) instead.
+    // Normally this would be super trivial to do using D3D11_LOGIC_OP_XOR, but this would break
+    // the lightness adjustment that the ClearType/Grayscale AA algorithms use. Additionally,
+    // in case of ClearType specifically, this would break the red/blue shift on the edges.
+    //
+    // The alternative approach chosen here does a regular linear inversion (1 - RGB), but checks the
+    // background color of all cells the cursor is on and darkens it if any of them could be considered "gray".
+    _flushQuads(p);
+    _deviceContext->OMSetBlendState(_blendStateInvert.get(), nullptr, 0xffffffff);
+
+    const auto y = p.cursorRect.top * p.s->cellCount.x;
+    const auto left = p.cursorRect.left;
+    const auto right = p.cursorRect.right;
+
+    for (auto x1 = left; x1 < right; ++x1)
+    {
+        const auto x0 = x1;
+        const auto bgReg = p.backgroundBitmap[y + x1] | 0xff000000;
+
+        for (; x1 < right && (p.backgroundBitmap[y + x1] | 0xff000000) == bgReg; ++x1)
+        {
+        }
+
+        const auto bgInv = ~bgReg;
+        // The following two lines are an adaptation of "Determine if a word has a byte greater than n"
+        // from the well known "Bit Twiddling Hacks" website (this is open domain code).
+        // gte = greater than or equal, lte = lower than or equal
+        const auto gte70 = ((bgReg & 0x7f7f7f) + 0x101010 | bgReg) & 0x808080;
+        const auto lte8f = ((bgInv & 0x7f7f7f) + 0x101010 | bgInv) & 0x808080;
+        // isGray will now be true if all 3 channels of the color are in the range [0x70,0x8f].
+        const auto isGray = (gte70 & lte8f) == 0x808080;
+        // The shader will invert the color by calculating `cursorColor - rendertTargetColor`, where
+        // `rendertTargetColor` is the color already in the render target view (= all the text, etc.).
+        // To avoid the issue mentioned above, we want to darken the color by -32 in each channel.
+        // To do so we can just pass it a corresponding `cursorColor` in the range [0xc0,0xff].
+        // Since the [0xc0,0xff] range is twice as large as [0x70,0x8f], we multiply by 2.
+        const auto cursorColor = isGray ? 0xffc0c0c0 + 2 * (bgReg - 0xff707070) : 0xffffffff;
+
+        size_t rectCount = 1;
+        f32r rects[4];
+        rects[0] = {
+            static_cast<f32>(p.s->font->cellSize.x * x0),
+            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
+            static_cast<f32>(p.s->font->cellSize.x * x1),
+            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
+        };
+
+        switch (static_cast<CursorType>(p.s->cursor->cursorType))
+        {
+        case CursorType::Legacy:
+            rects[0].top = rects[0].bottom - (rects[0].bottom - rects[0].top) * static_cast<float>(p.s->cursor->heightPercentage) / 100.0f;
+            break;
+        case CursorType::VerticalBar:
+            rects[0].right = rects[0].left + p.s->font->thinLineWidth;
+            break;
+        case CursorType::Underscore:
+            rects[0].top += p.s->font->underlinePos;
+            rects[0].bottom = rects[0].top + p.s->font->underlineWidth;
+            break;
+        case CursorType::EmptyBox:
+            rectCount = 2;
+            if (x0 == left)
+            {
+                rects[rectCount] = rects[0];
+                rects[rectCount].top += p.s->font->thinLineWidth;
+                rects[rectCount].bottom -= p.s->font->thinLineWidth;
+                rects[rectCount].right = rects[rectCount].left + p.s->font->thinLineWidth;
+                ++rectCount;
+            }
+            if (x1 == right)
+            {
+                rects[rectCount] = rects[0];
+                rects[rectCount].top += p.s->font->thinLineWidth;
+                rects[rectCount].bottom -= p.s->font->thinLineWidth;
+                rects[rectCount].left = rects[rectCount].right - p.s->font->thinLineWidth;
+                ++rectCount;
+            }
+            rects[1] = rects[0];
+            rects[0].bottom = rects[0].top + p.s->font->thinLineWidth;
+            rects[1].top = rects[1].bottom - p.s->font->thinLineWidth;
+            break;
+        case CursorType::FullBox:
+            break;
+        case CursorType::DoubleUnderscore:
+        {
+            rects[1] = rects[0];
+            rects[0].top += p.s->font->doubleUnderlinePos.x;
+            rects[0].bottom = rects[0].top + p.s->font->thinLineWidth;
+            rects[1].top += p.s->font->doubleUnderlinePos.y;
+            rects[1].bottom = rects[1].top + p.s->font->thinLineWidth;
+            rectCount = 2;
+            break;
+        }
+        default:
+            break;
+        }
+
+        for (size_t i = 0; i < rectCount; ++i)
+        {
+            _appendQuad(rects[i], cursorColor, ShadingType::SolidFill);
+        }
+    }
+
+    _flushQuads(p);
+    _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
+}
+
+void BackendD3D11::_drawColoredCursor(const RenderingPayload& p, const u32 color)
+{
+    const f32r rect{
+        static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
+        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
+        static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
+        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
+    };
+    _appendQuad(rect, color, ShadingType::SolidFill);
+}
+
+void BackendD3D11::_drawSelection(const RenderingPayload& p)
+{
+    size_t y = 0;
+    u16 lastFrom = 0;
+    u16 lastTo = 0;
+
+    for (const auto& row : p.rows)
+    {
+        if (row.selectionTo > row.selectionFrom)
+        {
+            // If the current selection line matches the previous one, we can just extend the previous quad downwards.
+            // The way this is implemented isn't very smart, but we also don't have very many rows to iterate through.
+            if (row.selectionFrom == lastFrom && row.selectionTo == lastTo)
+            {
+                _getLastQuad().position.bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+            }
+            else
+            {
+                _appendQuad(
+                    {
+                        static_cast<f32>(p.s->font->cellSize.x * row.selectionFrom),
+                        static_cast<f32>(p.s->font->cellSize.y * y),
+                        static_cast<f32>(p.s->font->cellSize.x * row.selectionTo),
+                        static_cast<f32>(p.s->font->cellSize.y * (y + 1)),
+                    },
+                    p.s->misc->selectionColor,
+                    ShadingType::SolidFill);
+                lastFrom = row.selectionFrom;
+                lastTo = row.selectionTo;
+            }
+        }
+
+        y++;
     }
 }
 

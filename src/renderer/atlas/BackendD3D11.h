@@ -59,18 +59,10 @@ namespace Microsoft::Console::Render::Atlas
             SolidFill,
         };
         
-        struct f32x4s
-        {
-            f32 x{};
-            f32 y{};
-            f32 z{};
-            f32 w{};
-        };
-
         struct alignas(16) QuadInstance
         {
-            alignas(sizeof(f32x4s)) f32x4s position;
-            alignas(sizeof(f32x4s)) f32x4s texcoord;
+            alignas(sizeof(f32r)) f32r position;
+            alignas(sizeof(f32r)) f32r texcoord;
             alignas(sizeof(u32)) u32 color = 0;
             alignas(sizeof(u32)) u32 shadingType = 0;
             alignas(sizeof(u32x2)) u32x2 padding;
@@ -86,7 +78,7 @@ namespace Microsoft::Console::Render::Atlas
             u16 glyphIndex = 0;
             u16 shadingType = 0;
             f32x2 offset;
-            f32x4s texcoord;
+            f32r texcoord;
         };
         static_assert(sizeof(GlyphCacheEntry) == 40);
         
@@ -114,54 +106,52 @@ namespace Microsoft::Console::Render::Atlas
         };
 
         void _debugUpdateShaders();
-        void _recreateBackgroundBitmapSamplerState(const RenderingPayload& p);
+        __declspec(noinline) void _handleSettingsUpdate(const RenderingPayload& p);
         void _recreateCustomShader(const RenderingPayload& p);
         void _recreateCustomOffscreenTexture(const RenderingPayload& p);
+        void _d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const;
+        void _recreateBackgroundBitmapSamplerState(const RenderingPayload& p);
         void _recreateBackgroundColorBitmap(const RenderingPayload& p);
         void _recreateConstBuffer(const RenderingPayload& p);
-        void _d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const;
-        void _beginDrawing();
-        void _endDrawing();
+        void _d2dBeginDrawing();
+        void _d2dEndDrawing();
         void _resetAtlasAndBeginDraw(const RenderingPayload& p);
-        void _appendQuad(f32x4s position, u32 color, ShadingType shadingType);
-        void _appendQuad(f32x4s position, f32x4s texcoord, u32 color, ShadingType shadingType);
         QuadInstance& _getLastQuad() noexcept;
+        void _appendQuad(f32r position, u32 color, ShadingType shadingType);
+        void _appendQuad(f32r position, f32r texcoord, u32 color, ShadingType shadingType);
         __declspec(noinline) void _bumpInstancesSize();
-        void _flushRects(const RenderingPayload& p);
+        void _flushQuads(const RenderingPayload& p);
         __declspec(noinline) void _recreateInstanceBuffers(const RenderingPayload& p);
+        void _drawBackground(const RenderingPayload& p);
+        void _drawText(const RenderingPayload& p);
         bool _drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize);
-        void _drawGridlines(const RenderingPayload& p, const ShapedRow& row, size_t y);
+        void _drawGridlines(const RenderingPayload& p);
+        void _drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, size_t y);
+        void _drawCursor(const RenderingPayload& p);
+        void _drawInvertedCursor(const RenderingPayload& p);
+        void _drawColoredCursor(const RenderingPayload& p, u32 color);
+        void _drawSelection(const RenderingPayload& p);
 
         SwapChainManager _swapChainManager;
 
         wil::com_ptr<ID3D11Device1> _device;
         wil::com_ptr<ID3D11DeviceContext1> _deviceContext;
         wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
-
-        wil::com_ptr<ID3D11RasterizerState> _rasterizerState;
+        
         wil::com_ptr<ID3D11VertexShader> _vertexShader;
         wil::com_ptr<ID3D11PixelShader> _pixelShader;
         wil::com_ptr<ID3D11BlendState> _blendState;
         wil::com_ptr<ID3D11BlendState> _blendStateInvert;
         wil::com_ptr<ID3D11Buffer> _vsConstantBuffer;
         wil::com_ptr<ID3D11Buffer> _psConstantBuffer;
-        wil::com_ptr<ID3D11InputLayout> _inputLayout;
-        
         wil::com_ptr<ID3D11Buffer> _indexBuffer;
         wil::com_ptr<ID3D11Buffer> _instanceBuffer;
         wil::com_ptr<ID3D11ShaderResourceView> _instanceBufferView;
         size_t _instanceBufferSize = 0;
         Buffer<QuadInstance> _instances;
-        size_t _instancesSize;
+        size_t _instancesSize = 0;
         DXGI_FORMAT _indicesFormat = DXGI_FORMAT_UNKNOWN;
-
-        wil::com_ptr<ID3D11Texture2D> _backgroundBitmap;
-        wil::com_ptr<ID3D11ShaderResourceView> _backgroundBitmapView;
-        wil::com_ptr<ID3D11SamplerState> _backgroundBitmapSamplerState;
-
-        wil::com_ptr<ID3D11Texture2D> _glyphAtlas;
-        wil::com_ptr<ID3D11ShaderResourceView> _glyphAtlasView;
-
+        
         wil::com_ptr<ID3D11Texture2D> _customOffscreenTexture;
         wil::com_ptr<ID3D11ShaderResourceView> _customOffscreenTextureView;
         wil::com_ptr<ID3D11RenderTargetView> _customOffscreenTextureTargetView;
@@ -170,35 +160,35 @@ namespace Microsoft::Console::Render::Atlas
         wil::com_ptr<ID3D11Buffer> _customShaderConstantBuffer;
         wil::com_ptr<ID3D11SamplerState> _customShaderSamplerState;
         std::chrono::steady_clock::time_point _customShaderStartTime;
+        
+        wil::com_ptr<ID3D11Texture2D> _backgroundBitmap;
+        wil::com_ptr<ID3D11ShaderResourceView> _backgroundBitmapView;
+        wil::com_ptr<ID3D11SamplerState> _backgroundBitmapSamplerState;
 
-        // D2D resources
-        wil::com_ptr<ID2D1DeviceContext> _d2dRenderTarget;
-        wil::com_ptr<ID2D1DeviceContext4> _d2dRenderTarget4; // Optional. Supported since Windows 10 14393.
-        wil::com_ptr<ID2D1SolidColorBrush> _brush;
-        Buffer<DWRITE_FONT_AXIS_VALUE> _textFormatAxes[2][2];
-        wil::com_ptr<ID2D1StrokeStyle> _dottedStrokeStyle;
-        bool _d2dBeganDrawing = false;
-        bool _resetGlyphAtlas = false;
-
-        // D3D resources
+        wil::com_ptr<ID3D11Texture2D> _glyphAtlas;
+        wil::com_ptr<ID3D11ShaderResourceView> _glyphAtlasView;
         GlyphCacheMap _glyphCache;
         Buffer<stbrp_node> _rectPackerData;
         stbrp_context _rectPacker{};
 
-        bool _requiresContinuousRedraw = false;
+        wil::com_ptr<ID2D1DeviceContext> _d2dRenderTarget;
+        wil::com_ptr<ID2D1DeviceContext4> _d2dRenderTarget4; // Optional. Supported since Windows 10 14393.
+        wil::com_ptr<ID2D1SolidColorBrush> _brush;
+        bool _d2dBeganDrawing = false;
+        bool _resetGlyphAtlas = false;
 
         float _gamma = 0;
         float _cleartypeEnhancedContrast = 0;
         float _grayscaleEnhancedContrast = 0;
         wil::com_ptr<IDWriteRenderingParams1> _textRenderingParams;
 
-        u32 _brushColor = 0;
-        u16x2 _targetSize;
-        u16x2 _cellCount;
-
         til::generation_t _generation;
         til::generation_t _fontGeneration;
         til::generation_t _miscGeneration;
+        u16x2 _targetSize;
+        u16x2 _cellCount;
+        
+        bool _requiresContinuousRedraw = false;
 
 #ifndef NDEBUG
         std::filesystem::path _sourceDirectory;
