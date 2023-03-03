@@ -14,14 +14,7 @@ namespace Microsoft::Console::Render::Atlas
 
     private:
         ID2D1Brush* _brushWithColor(u32 color);
-        void _d2dDrawLine(const RenderingPayload& p, u16r rect, u16 pos, u16 width, u32 color, ID2D1StrokeStyle* strokeStyle);
-        void _d2dFillRectangle(const RenderingPayload& p, u16r rect, u32 color);
-        void _d2dCellFlagRendererCursor(const RenderingPayload& p, u16r rect, u32 color);
-        void _d2dCellFlagRendererSelected(const RenderingPayload& p, u16r rect, u32 color);
-        void _d2dCellFlagRendererUnderline(const RenderingPayload& p, u16r rect, u32 color);
-        void _d2dCellFlagRendererUnderlineDotted(const RenderingPayload& p, u16r rect, u32 color);
-        void _d2dCellFlagRendererUnderlineDouble(const RenderingPayload& p, u16r rect, u32 color);
-        void _d2dCellFlagRendererStrikethrough(const RenderingPayload& p, u16r rect, u32 color);
+        void _d2dFillRectangle(const RenderingPayload& p, const D2D1_RECT_F& rect, u32 color);
 
         SwapChainManager _swapChainManager;
 

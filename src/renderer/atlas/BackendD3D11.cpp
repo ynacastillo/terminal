@@ -706,7 +706,7 @@ void BackendD3D11::_resetGlyphAtlasAndBeginDraw(const RenderingPayload& p)
             wil::com_ptr<ID2D1RenderTarget> renderTarget;
             THROW_IF_FAILED(p.d2dFactory->CreateDxgiSurfaceRenderTarget(surface.get(), &props, renderTarget.addressof()));
             _d2dRenderTarget = renderTarget.query<ID2D1DeviceContext>();
-            _d2dRenderTarget4 = renderTarget.query<ID2D1DeviceContext4>();
+            _d2dRenderTarget4 = renderTarget.try_query<ID2D1DeviceContext4>();
 
             // We don't really use D2D for anything except DWrite, but it
             // can't hurt to ensure that everything it does is pixel aligned.
@@ -1005,7 +1005,7 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
 
 void BackendD3D11::_drawGridlines(const RenderingPayload& p)
 {
-    size_t y = 0;
+    u32 y = 0;
     for (const auto& row : p.rows)
     {
         if (!row.gridLineRanges.empty())
@@ -1016,129 +1016,73 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p)
     }
 }
 
-void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, size_t y)
+void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, u32 y)
 {
+    const auto top = static_cast<f32>(p.s->font->cellSize.y * y);
+    const auto bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+
     for (const auto& r : row.gridLineRanges)
     {
         // AtlasEngine.cpp shouldn't add any gridlines if they don't do anything.
         assert(r.lines.any());
 
-        const auto top = static_cast<f32>(p.s->font->cellSize.y * y);
-        const auto bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
-        auto left = static_cast<f32>(p.s->font->cellSize.x * r.from);
-        auto right = static_cast<f32>(p.s->font->cellSize.x * r.to);
+        f32r rect{ static_cast<f32>(r.from * p.s->font->cellSize.x), top, static_cast<f32>(r.to * p.s->font->cellSize.x), bottom };
 
         if (r.lines.test(GridLines::Left))
         {
-            for (; left < right; left += p.s->font->cellSize.x)
+            for (auto i = r.from; i < r.to; ++i)
             {
-                _appendQuad(
-                    {
-                        left,
-                        top,
-                        left + p.s->font->thinLineWidth,
-                        bottom,
-                    },
-                    r.color,
-                    ShadingType::SolidFill);
+                rect.left = static_cast<f32>(i * p.s->font->cellSize.x);
+                rect.right = rect.left + p.s->font->thinLineWidth;
+                _appendQuad(rect, r.color, ShadingType::SolidFill);
             }
         }
         if (r.lines.test(GridLines::Top))
         {
-            _appendQuad(
-                {
-                    left,
-                    top,
-                    right,
-                    top + static_cast<f32>(p.s->font->thinLineWidth),
-                },
-                r.color,
-                ShadingType::SolidFill);
+            rect.bottom = rect.top + static_cast<f32>(p.s->font->thinLineWidth);
+            _appendQuad(rect, r.color, ShadingType::SolidFill);
         }
         if (r.lines.test(GridLines::Right))
         {
-            for (; right > left; right -= p.s->font->cellSize.x)
+            for (auto i = r.to; i > r.from; --i)
             {
-                _appendQuad(
-                    {
-                        right - p.s->font->thinLineWidth,
-                        top,
-                        right,
-                        bottom,
-                    },
-                    r.color,
-                    ShadingType::SolidFill);
+                rect.right = static_cast<f32>(i * p.s->font->cellSize.x);
+                rect.left = rect.right - p.s->font->thinLineWidth;
+                _appendQuad(rect, r.color, ShadingType::SolidFill);
             }
         }
         if (r.lines.test(GridLines::Bottom))
         {
-            _appendQuad(
-                {
-                    left,
-                    bottom - p.s->font->thinLineWidth,
-                    right,
-                    bottom,
-                },
-                r.color,
-                ShadingType::SolidFill);
+            rect.top = rect.bottom - p.s->font->thinLineWidth;
+            _appendQuad(rect, r.color, ShadingType::SolidFill);
         }
         if (r.lines.test(GridLines::Underline))
         {
-            _appendQuad(
-                {
-                    left,
-                    top + p.s->font->underlinePos,
-                    right,
-                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
-                },
-                r.color,
-                ShadingType::SolidFill);
+            rect.top += p.s->font->underlinePos;
+            rect.bottom = rect.top + p.s->font->underlineWidth;
+            _appendQuad(rect, r.color, ShadingType::SolidFill);
         }
         if (r.lines.test(GridLines::HyperlinkUnderline))
         {
-            _appendQuad(
-                {
-                    left,
-                    top + p.s->font->underlinePos,
-                    right,
-                    top + p.s->font->underlinePos + p.s->font->underlineWidth,
-                },
-                r.color,
-                ShadingType::DashedLine);
+            rect.top += p.s->font->underlinePos;
+            rect.bottom = rect.top + p.s->font->underlineWidth;
+            _appendQuad(rect, r.color, ShadingType::DashedLine);
         }
         if (r.lines.test(GridLines::DoubleUnderline))
         {
-            _appendQuad(
-                {
-                    left,
-                    top + p.s->font->doubleUnderlinePos.x,
-                    right,
-                    top + p.s->font->doubleUnderlinePos.x + p.s->font->thinLineWidth,
-                },
-                r.color,
-                ShadingType::SolidFill);
+            rect.top = top + p.s->font->doubleUnderlinePos.x;
+            rect.bottom = rect.top + p.s->font->thinLineWidth;
+            _appendQuad(rect, r.color, ShadingType::SolidFill);
 
-            _appendQuad(
-                {
-                    left,
-                    top + p.s->font->doubleUnderlinePos.y,
-                    right,
-                    top + p.s->font->doubleUnderlinePos.y + p.s->font->thinLineWidth,
-                },
-                r.color,
-                ShadingType::SolidFill);
+            rect.top = top + p.s->font->doubleUnderlinePos.y;
+            rect.bottom = rect.top + p.s->font->thinLineWidth;
+            _appendQuad(rect, r.color, ShadingType::SolidFill);
         }
         if (r.lines.test(GridLines::Strikethrough))
         {
-            _appendQuad(
-                {
-                    left,
-                    top + p.s->font->strikethroughPos,
-                    right,
-                    top + p.s->font->strikethroughPos + p.s->font->strikethroughWidth,
-                },
-                r.color,
-                ShadingType::SolidFill);
+            rect.top = top + p.s->font->strikethroughPos;
+            rect.bottom = rect.top + p.s->font->strikethroughWidth;
+            _appendQuad(rect, r.color, ShadingType::SolidFill);
         }
     }
 }
@@ -1285,7 +1229,7 @@ void BackendD3D11::_drawColoredCursor(const RenderingPayload& p, const u32 color
 
 void BackendD3D11::_drawSelection(const RenderingPayload& p)
 {
-    size_t y = 0;
+    u32 y = 0;
     u16 lastFrom = 0;
     u16 lastTo = 0;
 
@@ -1301,15 +1245,13 @@ void BackendD3D11::_drawSelection(const RenderingPayload& p)
             }
             else
             {
-                _appendQuad(
-                    {
-                        static_cast<f32>(p.s->font->cellSize.x * row.selectionFrom),
-                        static_cast<f32>(p.s->font->cellSize.y * y),
-                        static_cast<f32>(p.s->font->cellSize.x * row.selectionTo),
-                        static_cast<f32>(p.s->font->cellSize.y * (y + 1)),
-                    },
-                    p.s->misc->selectionColor,
-                    ShadingType::SolidFill);
+                const f32r rect{
+                    static_cast<f32>(p.s->font->cellSize.x * row.selectionFrom),
+                    static_cast<f32>(p.s->font->cellSize.y * y),
+                    static_cast<f32>(p.s->font->cellSize.x * row.selectionTo),
+                    static_cast<f32>(p.s->font->cellSize.y * (y + 1)),
+                };
+                _appendQuad(rect, p.s->misc->selectionColor, ShadingType::SolidFill);
                 lastFrom = row.selectionFrom;
                 lastTo = row.selectionTo;
             }

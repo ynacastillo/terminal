@@ -51,8 +51,7 @@ void BackendD2D::Render(const RenderingPayload& p)
                 wil::com_ptr<ID2D1RenderTarget> renderTarget;
                 THROW_IF_FAILED(p.d2dFactory->CreateDxgiSurfaceRenderTarget(surface.get(), &props, renderTarget.addressof()));
                 _d2dRenderTarget = renderTarget.query<ID2D1DeviceContext>();
-                _d2dRenderTarget4 = renderTarget.query<ID2D1DeviceContext4>();
-                _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(p.s->font->antialiasingMode));
+                _d2dRenderTarget4 = renderTarget.try_query<ID2D1DeviceContext4>();
             }
             {
                 static constexpr D2D1_COLOR_F color{ 1, 1, 1, 1 };
@@ -61,10 +60,18 @@ void BackendD2D::Render(const RenderingPayload& p)
             }
         }
 
+        if (!_dottedStrokeStyle)
+        {
+            static constexpr D2D1_STROKE_STYLE_PROPERTIES props{ .dashStyle = D2D1_DASH_STYLE_CUSTOM };
+            static constexpr FLOAT dashes[2]{ 1, 2 };
+            THROW_IF_FAILED(p.d2dFactory->CreateStrokeStyle(&props, &dashes[0], 2, _dottedStrokeStyle.addressof()));
+        }
+
         if (_fontGeneration != p.s->font.generation())
         {
             const auto dpi = p.s->font->dpi;
             _d2dRenderTarget->SetDpi(dpi, dpi);
+            _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(p.s->font->antialiasingMode));
         }
 
         if (_fontGeneration != p.s->font.generation() || _cellCount != p.s->cellCount)
@@ -96,128 +103,218 @@ void BackendD2D::Render(const RenderingPayload& p)
     }
 
     _d2dRenderTarget->BeginDraw();
+    // Background
+    //
+    // If the terminal was 120x30 cells and 1200x600 pixels large, this would draw the
+    // background by upscaling a 120x30 pixel bitmap to fill the entire render target.
     {
-        // If the terminal was 120x30 cells and 1200x600 pixels large, this would draw the
-        // background by upscaling a 120x30 pixel bitmap to fill the entire render target.
+        _d2dRenderTarget->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+        const D2D1_RECT_F rect{ 0, 0, p.s->cellCount.x * p.d.font.cellSizeDIP.x, p.s->cellCount.y * p.d.font.cellSizeDIP.y };
+        _d2dBackgroundBitmap->CopyFromMemory(nullptr, p.backgroundBitmap.data(), p.s->cellCount.x * 4);
+        _d2dRenderTarget->FillRectangle(&rect, _d2dBackgroundBrush.get());
+        _d2dRenderTarget->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    }
+    // Text
+    //
+    // It is possible to create a "_d2dForegroundBrush" similar to how the `_d2dBackgroundBrush` is created and
+    // use that as the brush for text rendering below. That way we wouldn't have to search `row.colors` for color
+    // changes and could draw entire lines of text in a single call. Unfortunately Direct2D is not particularly
+    // smart if you do this and chooses to draw the given text into a way too small offscreen texture first and
+    // then blends it on the screen with the given bitmap brush. While this roughly doubles the performance
+    // when drawing lots of colors, the extra latency drops performance by >10x when drawing fewer colors.
+    // Since fewer colors are more common, I've chosen to go with regular solid-color brushes.
+    {
+        u16 y = 0;
+        for (const auto& row : p.rows)
         {
-            _d2dRenderTarget->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
-            const D2D1_RECT_F rect{ 0, 0, p.s->cellCount.x * p.d.font.cellSizeDIP.x, p.s->cellCount.y * p.d.font.cellSizeDIP.y };
-            _d2dBackgroundBitmap->CopyFromMemory(nullptr, p.backgroundBitmap.data(), p.s->cellCount.x * 4);
-            _d2dRenderTarget->FillRectangle(&rect, _d2dBackgroundBrush.get());
-            _d2dRenderTarget->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
-        }
-
-        // It is possible to create a "_d2dForegroundBrush" similar to how the `_d2dBackgroundBrush` is created and
-        // use that as the brush for text rendering below. That way we wouldn't have to search `row.colors` for color
-        // changes and could draw entire lines of text in a single call. Unfortunately Direct2D is not particularly
-        // smart if you do this and chooses to draw the given text into a way too small offscreen texture first and
-        // then blends it on the screen with the given bitmap brush. While this roughly doubles the performance
-        // when drawing lots of colors, the extra latency drops performance by >10x when drawing fewer colors.
-        // Since fewer colors are more common, I've chosen to go with regular solid-color brushes.
-        {
-            u16 y = 0;
-            for (const auto& row : p.rows)
+            f32 x = 0.0f;
+            for (const auto& m : row.mappings)
             {
-                f32 x = 0.0f;
-                for (const auto& m : row.mappings)
+                const auto beg = row.colors.begin();
+                auto it = row.colors.begin() + m.glyphsFrom;
+                const auto end = row.colors.begin() + m.glyphsTo;
+
+                do
                 {
-                    const auto beg = row.colors.begin();
-                    auto it = row.colors.begin() + m.glyphsFrom;
-                    const auto end = row.colors.begin() + m.glyphsTo;
+                    const auto beg2 = it;
+                    const auto off = it - beg;
+                    const auto fg = *it;
 
-                    do
+                    while (++it != end && *it == fg)
                     {
-                        const auto beg2 = it;
-                        const auto off = it - beg;
-                        const auto fg = *it;
+                    }
 
-                        while (++it != end && *it == fg)
-                        {
-                        }
-
-                        const auto brush = _brushWithColor(fg);
-                        const DWRITE_GLYPH_RUN glyphRun{
-                            .fontFace = m.fontFace.get(),
-                            .fontEmSize = m.fontEmSize,
-                            .glyphCount = static_cast<UINT32>(it - beg2),
-                            .glyphIndices = &row.glyphIndices[off],
-                            .glyphAdvances = &row.glyphAdvances[off],
-                            .glyphOffsets = &row.glyphOffsets[off],
-                        };
-                        const D2D1_POINT_2F baseline{
-                            .x = x,
-                            .y = p.d.font.cellSizeDIP.y * y + p.s->font->baselineInDIP,
-                        };
-                        _drawGlyphRun(p.dwriteFactory4.get(), _d2dRenderTarget.get(), _d2dRenderTarget4.get(), baseline, &glyphRun, brush);
-                        for (UINT32 i = 0; i < glyphRun.glyphCount; ++i)
-                        {
-                            x += glyphRun.glyphAdvances[i];
-                        }
-                    } while (it != end);
-                }
-
-                y++;
+                    const auto brush = _brushWithColor(fg);
+                    const DWRITE_GLYPH_RUN glyphRun{
+                        .fontFace = m.fontFace.get(),
+                        .fontEmSize = m.fontEmSize,
+                        .glyphCount = static_cast<UINT32>(it - beg2),
+                        .glyphIndices = &row.glyphIndices[off],
+                        .glyphAdvances = &row.glyphAdvances[off],
+                        .glyphOffsets = &row.glyphOffsets[off],
+                    };
+                    const D2D1_POINT_2F baseline{
+                        .x = x,
+                        .y = p.d.font.cellSizeDIP.y * y + p.s->font->baselineInDIP,
+                    };
+                    _drawGlyphRun(p.dwriteFactory4.get(), _d2dRenderTarget.get(), _d2dRenderTarget4.get(), baseline, &glyphRun, brush);
+                    for (UINT32 i = 0; i < glyphRun.glyphCount; ++i)
+                    {
+                        x += glyphRun.glyphAdvances[i];
+                    }
+                } while (it != end);
             }
+
+            y++;
         }
-
+    }
+    // Gridlines
+    {
+        u16 y = 0;
+        for (const auto& row : p.rows)
         {
-            u16 y = 0;
-            for (const auto& row : p.rows)
-            {
-                for (const auto& r : row.gridLineRanges)
-                {
-                    assert(r.lines.any());
+            const auto top = p.d.font.cellSizeDIP.y * y;
+            const auto bottom = p.d.font.cellSizeDIP.y * (y + 1);
 
-                    if (r.lines.test(GridLines::Left))
+            for (const auto& r : row.gridLineRanges)
+            {
+                // AtlasEngine.cpp shouldn't add any gridlines if they don't do anything.
+                assert(r.lines.any());
+
+                D2D1_RECT_F rect{ r.from * p.d.font.cellSizeDIP.x, top, r.to * p.d.font.cellSizeDIP.x, bottom };
+
+                if (r.lines.test(GridLines::Left))
+                {
+                    for (auto i = r.from; i < r.to; ++i)
                     {
-                    }
-                    if (r.lines.test(GridLines::Top))
-                    {
-                    }
-                    if (r.lines.test(GridLines::Right))
-                    {
-                    }
-                    if (r.lines.test(GridLines::Bottom))
-                    {
-                    }
-                    if (r.lines.test(GridLines::Underline))
-                    {
-                        _d2dCellFlagRendererUnderline(p, { r.from, y, r.to, y }, r.color);
-                    }
-                    if (r.lines.test(GridLines::HyperlinkUnderline))
-                    {
-                        _d2dCellFlagRendererUnderlineDotted(p, { r.from, y, r.to, y }, r.color);
-                    }
-                    if (r.lines.test(GridLines::DoubleUnderline))
-                    {
-                        _d2dCellFlagRendererUnderlineDouble(p, { r.from, y, r.to, y }, r.color);
-                    }
-                    if (r.lines.test(GridLines::Strikethrough))
-                    {
-                        _d2dCellFlagRendererStrikethrough(p, { r.from, y, r.to, y }, r.color);
+                        rect.left = i * p.d.font.cellSizeDIP.x;
+                        rect.right = rect.left + p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+                        _d2dFillRectangle(p, rect, r.color);
                     }
                 }
-
-                y++;
-            }
-        }
-
-        if (p.cursorRect.non_empty())
-        {
-            _d2dFillRectangle(p, p.cursorRect, p.s->cursor->cursorColor);
-        }
-
-        {
-            u16 y = 0;
-            for (const auto& row : p.rows)
-            {
-                if (row.selectionTo > row.selectionFrom)
+                if (r.lines.test(GridLines::Top))
                 {
-                    _d2dFillRectangle(p, { row.selectionFrom, y, row.selectionTo, gsl::narrow_cast<u16>(y + 1) }, p.s->misc->selectionColor);
+                    rect.bottom = rect.top + p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+                    _d2dFillRectangle(p, rect, r.color);
                 }
+                if (r.lines.test(GridLines::Right))
+                {
+                    for (auto i = r.to; i > r.from; --i)
+                    {
+                        rect.right = i * p.d.font.cellSizeDIP.x;
+                        rect.left = rect.right - p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+                        _d2dFillRectangle(p, rect, r.color);
+                    }
+                }
+                if (r.lines.test(GridLines::Bottom))
+                {
+                    rect.top = rect.bottom - p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+                    _d2dFillRectangle(p, rect, r.color);
+                }
+                if (r.lines.test(GridLines::Underline))
+                {
+                    rect.top += p.s->font->underlinePos * p.d.font.dipPerPixel;
+                    rect.bottom = rect.top + p.s->font->underlineWidth * p.d.font.dipPerPixel;
+                    _d2dFillRectangle(p, rect, r.color);
+                }
+                if (r.lines.test(GridLines::HyperlinkUnderline))
+                {
+                    const auto w = p.s->font->underlineWidth * p.d.font.dipPerPixel;
+                    const auto centerY = rect.top + p.s->font->underlinePos * p.d.font.dipPerPixel + w * 0.5f;
+                    const auto brush = _brushWithColor(r.color);
+                    const D2D1_POINT_2F point0{ rect.left, centerY };
+                    const D2D1_POINT_2F point1{ rect.right, centerY };
+                    _d2dRenderTarget->DrawLine(point0, point1, brush, w, _dottedStrokeStyle.get());
+                }
+                if (r.lines.test(GridLines::DoubleUnderline))
+                {
+                    rect.top = top + p.s->font->doubleUnderlinePos.x * p.d.font.dipPerPixel;
+                    rect.bottom = rect.top + p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+                    _d2dFillRectangle(p, rect, r.color);
 
-                y++;
+                    rect.top = top + p.s->font->doubleUnderlinePos.y * p.d.font.dipPerPixel;
+                    rect.bottom = rect.top + p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+                    _d2dFillRectangle(p, rect, r.color);
+                }
+                if (r.lines.test(GridLines::Strikethrough))
+                {
+                    rect.top = top + p.s->font->strikethroughPos * p.d.font.dipPerPixel;
+                    rect.bottom = rect.top + p.s->font->strikethroughWidth * p.d.font.dipPerPixel;
+                    _d2dFillRectangle(p, rect, r.color);
+                }
             }
+
+            y++;
+        }
+    }
+
+    if (p.cursorRect.non_empty())
+    {
+        D2D1_RECT_F rect{
+            p.d.font.cellSizeDIP.x * p.cursorRect.left,
+            p.d.font.cellSizeDIP.y * p.cursorRect.top,
+            p.d.font.cellSizeDIP.x * p.cursorRect.right,
+            p.d.font.cellSizeDIP.y * p.cursorRect.bottom,
+        };
+
+        switch (static_cast<CursorType>(p.s->cursor->cursorType))
+        {
+        case CursorType::Legacy:
+            rect.top = rect.bottom - (rect.bottom - rect.top) * static_cast<float>(p.s->cursor->heightPercentage) / 100.0f;
+            _d2dFillRectangle(p, rect, p.s->cursor->cursorColor);
+            break;
+        case CursorType::VerticalBar:
+            rect.right = rect.left + p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+            _d2dFillRectangle(p, rect, p.s->cursor->cursorColor);
+            break;
+        case CursorType::Underscore:
+            rect.top += p.s->font->underlinePos * p.d.font.dipPerPixel;
+            rect.bottom = rect.top + p.s->font->underlineWidth * p.d.font.dipPerPixel;
+            _d2dFillRectangle(p, rect, p.s->cursor->cursorColor);
+            break;
+        case CursorType::EmptyBox:
+        {
+            const auto brush = _brushWithColor(p.s->cursor->cursorColor);
+            _d2dRenderTarget->DrawRectangle(rect, brush, p.s->font->thinLineWidth * p.d.font.dipPerPixel, nullptr);
+            break;
+        }
+        case CursorType::FullBox:
+            _d2dFillRectangle(p, rect, p.s->cursor->cursorColor);
+            break;
+        case CursorType::DoubleUnderscore:
+        {
+            auto rect2 = rect;
+            rect2.top = rect.top + p.s->font->doubleUnderlinePos.x * p.d.font.dipPerPixel;
+            rect2.bottom = rect2.top + p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+            _d2dFillRectangle(p, rect2, p.s->cursor->cursorColor);
+            rect.top = rect.top + p.s->font->doubleUnderlinePos.y * p.d.font.dipPerPixel;
+            rect.bottom = rect.top + p.s->font->thinLineWidth * p.d.font.dipPerPixel;
+            _d2dFillRectangle(p, rect, p.s->cursor->cursorColor);
+            break;
+        }
+        default:
+            break;
+        }
+
+        _d2dFillRectangle(p, rect, p.s->cursor->cursorColor);
+    }
+
+    {
+        u16 y = 0;
+        for (const auto& row : p.rows)
+        {
+            if (row.selectionTo > row.selectionFrom)
+            {
+                const D2D1_RECT_F rect{
+                    p.d.font.cellSizeDIP.x * row.selectionFrom,
+                    p.d.font.cellSizeDIP.y * y,
+                    p.d.font.cellSizeDIP.x * row.selectionTo,
+                    p.d.font.cellSizeDIP.y * (y + 1),
+                };
+                _d2dFillRectangle(p, rect, p.s->misc->selectionColor);
+            }
+
+            y++;
         }
     }
     THROW_IF_FAILED(_d2dRenderTarget->EndDraw());
@@ -246,61 +343,8 @@ ID2D1Brush* BackendD2D::_brushWithColor(u32 color)
     return _brush.get();
 }
 
-void BackendD2D::_d2dDrawLine(const RenderingPayload& p, u16r rect, u16 pos, u16 width, u32 color, ID2D1StrokeStyle* strokeStyle)
+void BackendD2D::_d2dFillRectangle(const RenderingPayload& p, const D2D1_RECT_F& rect, u32 color)
 {
-    const auto w = static_cast<f32>(width) * p.d.font.dipPerPixel;
-    const auto y1 = static_cast<f32>(rect.top) * p.d.font.cellSizeDIP.y + static_cast<f32>(pos) * p.d.font.dipPerPixel + w * 0.5f;
-    const auto x1 = static_cast<f32>(rect.left) * p.d.font.cellSizeDIP.x;
-    const auto x2 = static_cast<f32>(rect.right) * p.d.font.cellSizeDIP.x;
     const auto brush = _brushWithColor(color);
-    _d2dRenderTarget->DrawLine({ x1, y1 }, { x2, y1 }, brush, w, strokeStyle);
-}
-
-void BackendD2D::_d2dFillRectangle(const RenderingPayload& p, u16r rect, u32 color)
-{
-    const D2D1_RECT_F r{
-        .left = static_cast<f32>(rect.left) * p.d.font.cellSizeDIP.x,
-        .top = static_cast<f32>(rect.top) * p.d.font.cellSizeDIP.y,
-        .right = static_cast<f32>(rect.right) * p.d.font.cellSizeDIP.x,
-        .bottom = static_cast<f32>(rect.bottom) * p.d.font.cellSizeDIP.y,
-    };
-    const auto brush = _brushWithColor(color);
-    _d2dRenderTarget->FillRectangle(r, brush);
-}
-
-void BackendD2D::_d2dCellFlagRendererCursor(const RenderingPayload& p, u16r rect, u32 color)
-{
-}
-
-void BackendD2D::_d2dCellFlagRendererSelected(const RenderingPayload& p, u16r rect, u32 color)
-{
-    _d2dFillRectangle(p, rect, p.s->misc->selectionColor);
-}
-
-void BackendD2D::_d2dCellFlagRendererUnderline(const RenderingPayload& p, u16r rect, u32 color)
-{
-    _d2dDrawLine(p, rect, p.s->font->underlinePos, p.s->font->underlineWidth, color, nullptr);
-}
-
-void BackendD2D::_d2dCellFlagRendererUnderlineDotted(const RenderingPayload& p, u16r rect, u32 color)
-{
-    if (!_dottedStrokeStyle)
-    {
-        static constexpr D2D1_STROKE_STYLE_PROPERTIES props{ .dashStyle = D2D1_DASH_STYLE_CUSTOM };
-        static constexpr FLOAT dashes[2]{ 1, 2 };
-        THROW_IF_FAILED(p.d2dFactory->CreateStrokeStyle(&props, &dashes[0], 2, _dottedStrokeStyle.addressof()));
-    }
-
-    _d2dDrawLine(p, rect, p.s->font->underlinePos, p.s->font->underlineWidth, color, _dottedStrokeStyle.get());
-}
-
-void BackendD2D::_d2dCellFlagRendererUnderlineDouble(const RenderingPayload& p, u16r rect, u32 color)
-{
-    _d2dDrawLine(p, rect, p.s->font->doubleUnderlinePos.x, p.s->font->thinLineWidth, color, nullptr);
-    _d2dDrawLine(p, rect, p.s->font->doubleUnderlinePos.y, p.s->font->thinLineWidth, color, nullptr);
-}
-
-void BackendD2D::_d2dCellFlagRendererStrikethrough(const RenderingPayload& p, u16r rect, u32 color)
-{
-    _d2dDrawLine(p, rect, p.s->font->strikethroughPos, p.s->font->strikethroughWidth, color, nullptr);
+    _d2dRenderTarget->FillRectangle(&rect, brush);
 }

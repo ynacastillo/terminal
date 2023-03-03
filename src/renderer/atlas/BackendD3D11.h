@@ -127,7 +127,7 @@ namespace Microsoft::Console::Render::Atlas
         void _drawText(const RenderingPayload& p);
         bool _drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize);
         void _drawGridlines(const RenderingPayload& p);
-        void _drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, size_t y);
+        void _drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, u32 y);
         void _drawCursor(const RenderingPayload& p);
         void _drawInvertedCursor(const RenderingPayload& p);
         void _drawColoredCursor(const RenderingPayload& p, u32 color);
