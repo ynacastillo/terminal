@@ -66,13 +66,6 @@ Output main(PSData data) : SV_Target
         weights = color.aaaa;
         break;
     }
-    case SHADING_TYPE_PASSTHROUGH_INVERT:
-    {
-        color = glyphAtlas[data.texcoord];
-        color.rgb = color.aaa - color.rgb;
-        weights = color.aaaa;
-        break;
-    }
     case SHADING_TYPE_DASHED_LINE:
     {
         const bool on = frac(data.position.x / dashedLineLength) < 0.333333333f;

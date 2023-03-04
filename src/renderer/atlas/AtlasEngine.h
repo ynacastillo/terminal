@@ -87,10 +87,13 @@ namespace Microsoft::Console::Render::Atlas
         };
         
         // AtlasEngine.cpp
-        __declspec(noinline) void _recreateFontDependentResources();
-        __declspec(noinline) void _recreateCellCountDependentResources();
+        __declspec(noinline) void _handleSettingsUpdate();
+        void _recreateFontDependentResources();
+        void _recreateCellCountDependentResources();
         void _flushBufferLine();
         void _mapCharacters(const wchar_t* text, u32 textLength, u32* mappedLength, float* scale, IDWriteFontFace** mappedFontFace) const;
+        void _mapComplex(IDWriteFontFace* mappedFontFace, u32 idx, u32 length, ShapedRow& row);
+        __declspec(noinline) void _mapReplacementCharacter(u32 from, u32 to, ShapedRow& row);
 
         // AtlasEngine.api.cpp
         void _resolveTransparencySettings() noexcept;
@@ -137,6 +140,7 @@ namespace Microsoft::Console::Render::Atlas
 
             wil::com_ptr<IDWriteFontFace> replacementCharacterFontFace;
             u16 replacementCharacterGlyphIndex = 0;
+            bool replacementCharacterLookedUp = false;
 
             // UpdateDrawingBrushes()
             u32 backgroundOpaqueMixin = 0xff000000;

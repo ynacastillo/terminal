@@ -54,7 +54,6 @@ namespace Microsoft::Console::Render::Atlas
             TextGrayscale,
             TextClearType,
             Passthrough,
-            PassthroughInvert,
             DashedLine,
             SolidFill,
         };

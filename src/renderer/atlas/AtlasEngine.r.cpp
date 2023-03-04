@@ -239,12 +239,10 @@ void AtlasEngine::_recreateBackend()
     }
     else if (featureLevel < D3D_FEATURE_LEVEL_11_0)
     {
-        D3D11_FEATURE_DATA_D3D10_X_HARDWARE_OPTIONS options;
-        THROW_IF_FAILED(device->CheckFeatureSupport(D3D11_FEATURE_D3D10_X_HARDWARE_OPTIONS, &options, sizeof(options)));
-        if (!options.ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x)
-        {
-            d2dMode = true;
-        }
+        D3D11_FEATURE_DATA_D3D10_X_HARDWARE_OPTIONS options{};
+        // I'm assuming if `CheckFeatureSupport` fails, it'll leave `options` untouched which will result in `d2dMode |= true`.
+        std::ignore = device->CheckFeatureSupport(D3D11_FEATURE_D3D10_X_HARDWARE_OPTIONS, &options, sizeof(options));
+        d2dMode |= !options.ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x;
     }
 
     if (d2dMode)

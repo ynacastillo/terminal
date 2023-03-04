@@ -127,15 +127,6 @@ namespace Microsoft::Console::Render::Atlas
     using f32x4 = vec4<f32>;
     using f32r = rect<f32>;
 
-    // MSVC STL (version 22000) implements std::clamp<T>(T, T, T) in terms of the generic
-    // std::clamp<T, Predicate>(T, T, T, Predicate) with std::less{} as the argument,
-    // which introduces branching. While not perfect, this is still better than std::clamp.
-    template<typename T>
-    static constexpr T clamp(T val, T min, T max)
-    {
-        return std::max(min, std::min(max, val));
-    }
-
     // I wrote `Buffer` instead of using `std::vector`, because I want to convey that these things
     // explicitly _don't_ hold resizeable contents, but rather plain content of a fixed size.
     // For instance I didn't want a resizeable vector with a `push_back` method for my fixed-size

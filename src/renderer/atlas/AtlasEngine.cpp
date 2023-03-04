@@ -67,26 +67,7 @@ try
 
     if (_p.s != _api.s)
     {
-        const auto targetChanged = _p.s->target != _api.s->target;
-        const auto fontChanged = _p.s->font != _api.s->font;
-        const auto cellCountChanged = _p.s->cellCount != _api.s->cellCount;
-
-        _p.s = _api.s;
-
-        if (targetChanged)
-        {
-            _b.reset();
-        }
-        if (fontChanged)
-        {
-            _recreateFontDependentResources();
-        }
-        if (cellCountChanged)
-        {
-            _recreateCellCountDependentResources();
-        }
-
-        _api.invalidatedRows = invalidatedRowsAll;
+        _handleSettingsUpdate();
     }
 
     if constexpr (debugDisablePartialInvalidation)
@@ -375,6 +356,30 @@ CATCH_RETURN()
 
 #pragma endregion
 
+void AtlasEngine::_handleSettingsUpdate()
+{
+    const auto targetChanged = _p.s->target != _api.s->target;
+    const auto fontChanged = _p.s->font != _api.s->font;
+    const auto cellCountChanged = _p.s->cellCount != _api.s->cellCount;
+
+    _p.s = _api.s;
+
+    if (targetChanged)
+    {
+        _b.reset();
+    }
+    if (fontChanged)
+    {
+        _recreateFontDependentResources();
+    }
+    if (cellCountChanged)
+    {
+        _recreateCellCountDependentResources();
+    }
+
+    _api.invalidatedRows = invalidatedRowsAll;
+}
+
 void AtlasEngine::_recreateFontDependentResources()
 {
     _p.d.font.dipPerPixel = static_cast<f32>(USER_DEFAULT_SCREEN_DPI) / static_cast<f32>(_p.s->font->dpi);
@@ -407,26 +412,9 @@ void AtlasEngine::_recreateFontDependentResources()
         }
     }
 
-    {
-        bool succeeded = false;
-
-        u32 mappedLength = 0;
-        f32 scale = 1.0f;
-        wil::com_ptr<IDWriteFontFace> mappedFontFace;
-        _mapCharacters(L"\uFFFD", 1, &mappedLength, &scale, _api.replacementCharacterFontFace.put());
-
-        if (mappedLength == 1)
-        {
-            static constexpr u32 codepoint = 0xFFFD;
-            succeeded = SUCCEEDED(_api.replacementCharacterFontFace->GetGlyphIndicesW(&codepoint, 1, &_api.replacementCharacterGlyphIndex));
-        }
-
-        if (!succeeded)
-        {
-            _api.replacementCharacterFontFace.reset();
-            _api.replacementCharacterGlyphIndex = 0;
-        }
-    }
+    _api.replacementCharacterFontFace.reset();
+    _api.replacementCharacterGlyphIndex = 0;
+    _api.replacementCharacterLookedUp = false;
 }
 
 void AtlasEngine::_recreateCellCountDependentResources()
@@ -471,80 +459,24 @@ void AtlasEngine::_flushBufferLine()
     Expects(_api.bufferLineColumn.size() == _api.bufferLine.size() + 1);
 
     auto& row = _p.rows[_api.lastPaintBufferLineCoord.y];
-    const auto& textFormatAxis = _p.d.font.textFormatAxes[_api.attributes.italic][_api.attributes.bold];
-
-    TextAnalysisSource analysisSource{ _api.bufferLine.data(), gsl::narrow<UINT32>(_api.bufferLine.size()) };
-    TextAnalysisSink analysisSink{ _api.analysisResults };
 
     wil::com_ptr<IDWriteFontFace> mappedFontFace;
 
 #pragma warning(suppress : 26494) // Variable 'mappedEnd' is uninitialized. Always initialize an object (type.5).
     for (u32 idx = 0, mappedEnd; idx < _api.bufferLine.size(); idx = mappedEnd)
     {
-        auto scale = 1.0f;
+        f32 scale = 1;
         u32 mappedLength = 0;
-
-        if (textFormatAxis)
-        {
-            wil::com_ptr<IDWriteFontFace5> fontFace5;
-            THROW_IF_FAILED(_p.systemFontFallback.query<IDWriteFontFallback1>()->MapCharacters(
-                /* analysisSource */ &analysisSource,
-                /* textPosition */ idx,
-                /* textLength */ gsl::narrow_cast<u32>(_api.bufferLine.size()) - idx,
-                /* baseFontCollection */ _p.s->font->fontCollection.get(),
-                /* baseFamilyName */ _p.s->font->fontName.c_str(),
-                /* fontAxisValues */ textFormatAxis.data(),
-                /* fontAxisValueCount */ gsl::narrow_cast<u32>(textFormatAxis.size()),
-                /* mappedLength */ &mappedLength,
-                /* scale */ &scale,
-                /* mappedFontFace */ fontFace5.put()));
-            mappedFontFace = std::move(fontFace5);
-        }
-        else
-        {
-            const auto baseWeight = _api.attributes.bold ? DWRITE_FONT_WEIGHT_BOLD : static_cast<DWRITE_FONT_WEIGHT>(_p.s->font->fontWeight);
-            const auto baseStyle = _api.attributes.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL;
-            wil::com_ptr<IDWriteFont> font;
-
-            THROW_IF_FAILED(_p.systemFontFallback->MapCharacters(
-                /* analysisSource     */ &analysisSource,
-                /* textPosition       */ idx,
-                /* textLength         */ gsl::narrow_cast<u32>(_api.bufferLine.size()) - idx,
-                /* baseFontCollection */ _p.s->font->fontCollection.get(),
-                /* baseFamilyName     */ _p.s->font->fontName.c_str(),
-                /* baseWeight         */ baseWeight,
-                /* baseStyle          */ baseStyle,
-                /* baseStretch        */ DWRITE_FONT_STRETCH_NORMAL,
-                /* mappedLength       */ &mappedLength,
-                /* mappedFont         */ font.addressof(),
-                /* scale              */ &scale));
-
-            mappedFontFace.reset();
-            if (font)
-            {
-                THROW_IF_FAILED(font->CreateFontFace(mappedFontFace.addressof()));
-            }
-        }
-
+        _mapCharacters(_api.bufferLine.data() + idx, gsl::narrow_cast<u32>(_api.bufferLine.size()) - idx, &mappedLength, &scale, mappedFontFace.put());
         mappedEnd = idx + mappedLength;
-
-        const auto initialIndicesCount = row.glyphIndices.size();
 
         if (!mappedFontFace)
         {
-            if (_api.replacementCharacterFontFace)
-            {
-                const auto col0 = _api.bufferLineColumn[idx];
-                const auto col1 = _api.bufferLineColumn[mappedEnd];
-                const auto cols = gsl::narrow_cast<size_t>(col1 - col0);
-                row.glyphIndices.insert(row.glyphIndices.end(), cols, _api.replacementCharacterGlyphIndex);
-                row.glyphAdvances.insert(row.glyphAdvances.end(), cols, _p.d.font.cellSizeDIP.x);
-                row.glyphOffsets.insert(row.glyphOffsets.end(), cols, DWRITE_GLYPH_OFFSET{});
-                row.colors.insert(row.colors.end(), _api.colorsForeground.begin() + col0, _api.colorsForeground.begin() + col1);
-                row.mappings.emplace_back(_api.replacementCharacterFontFace, _p.s->font->fontSizeInDIP * 0.5f, gsl::narrow_cast<u32>(initialIndicesCount), gsl::narrow_cast<u32>(row.glyphIndices.size()));
-            }
+            _mapReplacementCharacter(idx, mappedEnd, row);
             continue;
         }
+
+        const auto initialIndicesCount = row.glyphIndices.size();
 
         if (mappedLength > _api.glyphIndices.size())
         {
@@ -579,146 +511,7 @@ void AtlasEngine::_flushBufferLine()
             }
             else
             {
-                _api.analysisResults.clear();
-                THROW_IF_FAILED(_p.textAnalyzer->AnalyzeScript(&analysisSource, idx, complexityLength, &analysisSink));
-                //_p.textAnalyzer->AnalyzeBidi(&atlasAnalyzer, idx, complexityLength, &atlasAnalyzer);
-
-                for (const auto& a : _api.analysisResults)
-                {
-                    DWRITE_SCRIPT_ANALYSIS scriptAnalysis{ a.script, static_cast<DWRITE_SCRIPT_SHAPES>(a.shapes) };
-                    u32 actualGlyphCount = 0;
-
-#pragma warning(push)
-#pragma warning(disable : 26494) // Variable '...' is uninitialized. Always initialize an object (type.5).
-                    // None of these variables need to be initialized.
-                    // features/featureRangeLengths are marked _In_reads_opt_(featureRanges).
-                    // featureRanges is only > 0 when we also initialize all these variables.
-                    DWRITE_TYPOGRAPHIC_FEATURES feature;
-                    const DWRITE_TYPOGRAPHIC_FEATURES* features;
-                    u32 featureRangeLengths;
-#pragma warning(pop)
-                    u32 featureRanges = 0;
-
-                    if (!_p.s->font->fontFeatures.empty())
-                    {
-                        // Direct2D, why is this mutable?         Why?
-                        feature.features = const_cast<DWRITE_FONT_FEATURE*>(_p.s->font->fontFeatures.data());
-                        feature.featureCount = gsl::narrow_cast<u32>(_p.s->font->fontFeatures.size());
-                        features = &feature;
-                        featureRangeLengths = a.textLength;
-                        featureRanges = 1;
-                    }
-
-                    if (_api.clusterMap.size() <= a.textLength)
-                    {
-                        _api.clusterMap = Buffer<u16>{ a.textLength + 1 };
-                        _api.textProps = Buffer<DWRITE_SHAPING_TEXT_PROPERTIES>{ a.textLength };
-                    }
-
-                    for (auto retry = 0;;)
-                    {
-                        const auto hr = _p.textAnalyzer->GetGlyphs(
-                            /* textString          */ _api.bufferLine.data() + a.textPosition,
-                            /* textLength          */ a.textLength,
-                            /* fontFace            */ mappedFontFace.get(),
-                            /* isSideways          */ false,
-                            /* isRightToLeft       */ a.bidiLevel & 1,
-                            /* scriptAnalysis      */ &scriptAnalysis,
-                            /* localeName          */ nullptr,
-                            /* numberSubstitution  */ nullptr,
-                            /* features            */ &features,
-                            /* featureRangeLengths */ &featureRangeLengths,
-                            /* featureRanges       */ featureRanges,
-                            /* maxGlyphCount       */ gsl::narrow_cast<u32>(_api.glyphIndices.size()),
-                            /* clusterMap          */ _api.clusterMap.data(),
-                            /* textProps           */ _api.textProps.data(),
-                            /* glyphIndices        */ _api.glyphIndices.data(),
-                            /* glyphProps          */ _api.glyphProps.data(),
-                            /* actualGlyphCount    */ &actualGlyphCount);
-
-                        if (hr == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) && ++retry < 8)
-                        {
-                            // Grow factor 1.5x.
-                            auto size = _api.glyphIndices.size();
-                            size = size + (size >> 1);
-                            // Overflow check.
-                            Expects(size > _api.glyphIndices.size());
-                            _api.glyphIndices = Buffer<u16>{ size };
-                            _api.glyphProps = Buffer<DWRITE_SHAPING_GLYPH_PROPERTIES>{ size };
-                            continue;
-                        }
-
-                        THROW_IF_FAILED(hr);
-                        break;
-                    }
-
-                    if (_api.glyphAdvances.size() < actualGlyphCount)
-                    {
-                        // Grow the buffer by at least 1.5x and at least of `actualGlyphCount` items.
-                        // The 1.5x growth ensures we don't reallocate every time we need 1 more slot.
-                        auto size = _api.glyphAdvances.size();
-                        size = size + (size >> 1);
-                        size = std::max<size_t>(size, actualGlyphCount);
-                        _api.glyphAdvances = Buffer<f32>{ size };
-                        _api.glyphOffsets = Buffer<DWRITE_GLYPH_OFFSET>{ size };
-                    }
-
-                    THROW_IF_FAILED(_p.textAnalyzer->GetGlyphPlacements(
-                        /* textString          */ _api.bufferLine.data() + a.textPosition,
-                        /* clusterMap          */ _api.clusterMap.data(),
-                        /* textProps           */ _api.textProps.data(),
-                        /* textLength          */ a.textLength,
-                        /* glyphIndices        */ _api.glyphIndices.data(),
-                        /* glyphProps          */ _api.glyphProps.data(),
-                        /* glyphCount          */ actualGlyphCount,
-                        /* fontFace            */ mappedFontFace.get(),
-                        /* fontEmSize          */ _p.s->font->fontSizeInDIP,
-                        /* isSideways          */ false,
-                        /* isRightToLeft       */ a.bidiLevel & 1,
-                        /* scriptAnalysis      */ &scriptAnalysis,
-                        /* localeName          */ nullptr,
-                        /* features            */ &features,
-                        /* featureRangeLengths */ &featureRangeLengths,
-                        /* featureRanges       */ featureRanges,
-                        /* glyphAdvances       */ _api.glyphAdvances.data(),
-                        /* glyphOffsets        */ _api.glyphOffsets.data()));
-
-                    // TODO: <=a.textLength
-                    _api.clusterMap[a.textLength] = gsl::narrow_cast<u16>(actualGlyphCount);
-
-                    auto prevCluster = _api.clusterMap[0];
-                    size_t beg = 0;
-
-                    for (size_t i = 1; i <= a.textLength; ++i)
-                    {
-                        const auto nextCluster = _api.clusterMap[i];
-                        if (prevCluster == nextCluster)
-                        {
-                            continue;
-                        }
-
-                        const auto col1 = _api.bufferLineColumn[a.textPosition + beg];
-                        const auto col2 = _api.bufferLineColumn[a.textPosition + i];
-                        const auto fg = _api.colorsForeground[col1];
-
-                        const auto expectedAdvance = (col2 - col1) * _p.d.font.cellSizeDIP.x;
-                        f32 actualAdvance = 0;
-                        for (auto j = prevCluster; j < nextCluster; ++j)
-                        {
-                            actualAdvance += _api.glyphAdvances[j];
-                        }
-                        _api.glyphAdvances[nextCluster - 1] += expectedAdvance - actualAdvance;
-
-                        row.colors.insert(row.colors.end(), nextCluster - prevCluster, fg);
-
-                        prevCluster = nextCluster;
-                        beg = i;
-                    }
-
-                    row.glyphIndices.insert(row.glyphIndices.end(), _api.glyphIndices.begin(), _api.glyphIndices.begin() + actualGlyphCount);
-                    row.glyphAdvances.insert(row.glyphAdvances.end(), _api.glyphAdvances.begin(), _api.glyphAdvances.begin() + actualGlyphCount);
-                    row.glyphOffsets.insert(row.glyphOffsets.end(), _api.glyphOffsets.begin(), _api.glyphOffsets.begin() + actualGlyphCount);
-                }
+                _mapComplex(mappedFontFace.get(), idx, complexityLength, row);
             }
         }
 
@@ -772,5 +565,189 @@ void AtlasEngine::_mapCharacters(const wchar_t* text, const u32 textLength, u32*
         {
             THROW_IF_FAILED(font->CreateFontFace(mappedFontFace));
         }
+    }
+}
+
+void AtlasEngine::_mapComplex(IDWriteFontFace* mappedFontFace, u32 idx, u32 length, ShapedRow& row)
+{
+    _api.analysisResults.clear();
+
+    TextAnalysisSource analysisSource{ _api.bufferLine.data(), gsl::narrow<UINT32>(_api.bufferLine.size()) };
+    TextAnalysisSink analysisSink{ _api.analysisResults };
+    THROW_IF_FAILED(_p.textAnalyzer->AnalyzeScript(&analysisSource, idx, length, &analysisSink));
+
+    for (const auto& a : _api.analysisResults)
+    {
+        DWRITE_SCRIPT_ANALYSIS scriptAnalysis{ a.script, static_cast<DWRITE_SCRIPT_SHAPES>(a.shapes) };
+        u32 actualGlyphCount = 0;
+
+#pragma warning(push)
+#pragma warning(disable : 26494) // Variable '...' is uninitialized. Always initialize an object (type.5).
+        // None of these variables need to be initialized.
+        // features/featureRangeLengths are marked _In_reads_opt_(featureRanges).
+        // featureRanges is only > 0 when we also initialize all these variables.
+        DWRITE_TYPOGRAPHIC_FEATURES feature;
+        const DWRITE_TYPOGRAPHIC_FEATURES* features;
+        u32 featureRangeLengths;
+#pragma warning(pop)
+        u32 featureRanges = 0;
+
+        if (!_p.s->font->fontFeatures.empty())
+        {
+            // Direct2D, why is this mutable?         Why?
+            feature.features = const_cast<DWRITE_FONT_FEATURE*>(_p.s->font->fontFeatures.data());
+            feature.featureCount = gsl::narrow_cast<u32>(_p.s->font->fontFeatures.size());
+            features = &feature;
+            featureRangeLengths = a.textLength;
+            featureRanges = 1;
+        }
+
+        if (_api.clusterMap.size() <= a.textLength)
+        {
+            _api.clusterMap = Buffer<u16>{ a.textLength + 1 };
+            _api.textProps = Buffer<DWRITE_SHAPING_TEXT_PROPERTIES>{ a.textLength };
+        }
+
+        for (auto retry = 0;;)
+        {
+            const auto hr = _p.textAnalyzer->GetGlyphs(
+                /* textString          */ _api.bufferLine.data() + a.textPosition,
+                /* textLength          */ a.textLength,
+                /* fontFace            */ mappedFontFace,
+                /* isSideways          */ false,
+                /* isRightToLeft       */ a.bidiLevel & 1,
+                /* scriptAnalysis      */ &scriptAnalysis,
+                /* localeName          */ nullptr,
+                /* numberSubstitution  */ nullptr,
+                /* features            */ &features,
+                /* featureRangeLengths */ &featureRangeLengths,
+                /* featureRanges       */ featureRanges,
+                /* maxGlyphCount       */ gsl::narrow_cast<u32>(_api.glyphIndices.size()),
+                /* clusterMap          */ _api.clusterMap.data(),
+                /* textProps           */ _api.textProps.data(),
+                /* glyphIndices        */ _api.glyphIndices.data(),
+                /* glyphProps          */ _api.glyphProps.data(),
+                /* actualGlyphCount    */ &actualGlyphCount);
+
+            if (hr == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) && ++retry < 8)
+            {
+                // Grow factor 1.5x.
+                auto size = _api.glyphIndices.size();
+                size = size + (size >> 1);
+                // Overflow check.
+                Expects(size > _api.glyphIndices.size());
+                _api.glyphIndices = Buffer<u16>{ size };
+                _api.glyphProps = Buffer<DWRITE_SHAPING_GLYPH_PROPERTIES>{ size };
+                continue;
+            }
+
+            THROW_IF_FAILED(hr);
+            break;
+        }
+
+        if (_api.glyphAdvances.size() < actualGlyphCount)
+        {
+            // Grow the buffer by at least 1.5x and at least of `actualGlyphCount` items.
+            // The 1.5x growth ensures we don't reallocate every time we need 1 more slot.
+            auto size = _api.glyphAdvances.size();
+            size = size + (size >> 1);
+            size = std::max<size_t>(size, actualGlyphCount);
+            _api.glyphAdvances = Buffer<f32>{ size };
+            _api.glyphOffsets = Buffer<DWRITE_GLYPH_OFFSET>{ size };
+        }
+
+        THROW_IF_FAILED(_p.textAnalyzer->GetGlyphPlacements(
+            /* textString          */ _api.bufferLine.data() + a.textPosition,
+            /* clusterMap          */ _api.clusterMap.data(),
+            /* textProps           */ _api.textProps.data(),
+            /* textLength          */ a.textLength,
+            /* glyphIndices        */ _api.glyphIndices.data(),
+            /* glyphProps          */ _api.glyphProps.data(),
+            /* glyphCount          */ actualGlyphCount,
+            /* fontFace            */ mappedFontFace,
+            /* fontEmSize          */ _p.s->font->fontSizeInDIP,
+            /* isSideways          */ false,
+            /* isRightToLeft       */ a.bidiLevel & 1,
+            /* scriptAnalysis      */ &scriptAnalysis,
+            /* localeName          */ nullptr,
+            /* features            */ &features,
+            /* featureRangeLengths */ &featureRangeLengths,
+            /* featureRanges       */ featureRanges,
+            /* glyphAdvances       */ _api.glyphAdvances.data(),
+            /* glyphOffsets        */ _api.glyphOffsets.data()));
+
+        _api.clusterMap[a.textLength] = gsl::narrow_cast<u16>(actualGlyphCount);
+
+        auto prevCluster = _api.clusterMap[0];
+        size_t beg = 0;
+
+        for (size_t i = 1; i <= a.textLength; ++i)
+        {
+            const auto nextCluster = _api.clusterMap[i];
+            if (prevCluster == nextCluster)
+            {
+                continue;
+            }
+
+            const auto col1 = _api.bufferLineColumn[a.textPosition + beg];
+            const auto col2 = _api.bufferLineColumn[a.textPosition + i];
+            const auto fg = _api.colorsForeground[col1];
+
+            const auto expectedAdvance = (col2 - col1) * _p.d.font.cellSizeDIP.x;
+            f32 actualAdvance = 0;
+            for (auto j = prevCluster; j < nextCluster; ++j)
+            {
+                actualAdvance += _api.glyphAdvances[j];
+            }
+            _api.glyphAdvances[nextCluster - 1] += expectedAdvance - actualAdvance;
+
+            row.colors.insert(row.colors.end(), nextCluster - prevCluster, fg);
+
+            prevCluster = nextCluster;
+            beg = i;
+        }
+
+        row.glyphIndices.insert(row.glyphIndices.end(), _api.glyphIndices.begin(), _api.glyphIndices.begin() + actualGlyphCount);
+        row.glyphAdvances.insert(row.glyphAdvances.end(), _api.glyphAdvances.begin(), _api.glyphAdvances.begin() + actualGlyphCount);
+        row.glyphOffsets.insert(row.glyphOffsets.end(), _api.glyphOffsets.begin(), _api.glyphOffsets.begin() + actualGlyphCount);
+    }
+}
+
+void AtlasEngine::_mapReplacementCharacter(u32 from, u32 to, ShapedRow& row)
+{
+    if (!_api.replacementCharacterLookedUp)
+    {
+        bool succeeded = false;
+
+        u32 mappedLength = 0;
+        f32 scale = 1.0f;
+        _mapCharacters(L"\uFFFD", 1, &mappedLength, &scale, _api.replacementCharacterFontFace.put());
+
+        if (mappedLength == 1)
+        {
+            static constexpr u32 codepoint = 0xFFFD;
+            succeeded = SUCCEEDED(_api.replacementCharacterFontFace->GetGlyphIndicesW(&codepoint, 1, &_api.replacementCharacterGlyphIndex));
+        }
+
+        if (!succeeded)
+        {
+            _api.replacementCharacterFontFace.reset();
+            _api.replacementCharacterGlyphIndex = 0;
+        }
+
+        _api.replacementCharacterLookedUp = true;
+    }
+
+    if (_api.replacementCharacterFontFace)
+    {
+        const auto initialIndicesCount = row.glyphIndices.size();
+        const auto col0 = _api.bufferLineColumn[from];
+        const auto col1 = _api.bufferLineColumn[to];
+        const auto cols = gsl::narrow_cast<size_t>(col1 - col0);
+        row.glyphIndices.insert(row.glyphIndices.end(), cols, _api.replacementCharacterGlyphIndex);
+        row.glyphAdvances.insert(row.glyphAdvances.end(), cols, _p.d.font.cellSizeDIP.x);
+        row.glyphOffsets.insert(row.glyphOffsets.end(), cols, DWRITE_GLYPH_OFFSET{});
+        row.colors.insert(row.colors.end(), _api.colorsForeground.begin() + col0, _api.colorsForeground.begin() + col1);
+        row.mappings.emplace_back(_api.replacementCharacterFontFace, _p.s->font->fontSizeInDIP * 0.5f, gsl::narrow_cast<u32>(initialIndicesCount), gsl::narrow_cast<u32>(row.glyphIndices.size()));
     }
 }

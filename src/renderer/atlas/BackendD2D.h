@@ -13,64 +13,31 @@ namespace Microsoft::Console::Render::Atlas
         void WaitUntilCanRender() noexcept override;
 
     private:
+        __declspec(noinline) void _handleSettingsUpdate(const RenderingPayload& p);
+        void _drawBackground(const RenderingPayload& p);
+        void _drawText(const RenderingPayload& p);
+        void _drawGridlines(const RenderingPayload& p);
+        void _drawCursor(const RenderingPayload& p);
+        void _drawSelection(const RenderingPayload& p);
         ID2D1Brush* _brushWithColor(u32 color);
-        void _d2dFillRectangle(const RenderingPayload& p, const D2D1_RECT_F& rect, u32 color);
+        void _fillRectangle(const D2D1_RECT_F& rect, u32 color);
 
         SwapChainManager _swapChainManager;
 
         wil::com_ptr<ID3D11Device2> _device;
         wil::com_ptr<ID3D11DeviceContext2> _deviceContext;
-        wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
-        wil::com_ptr<ID3D11RenderTargetView> _renderTargetViewUInt;
 
-        wil::com_ptr<ID3D11VertexShader> _vertexShader;
-        wil::com_ptr<ID3D11PixelShader> _cleartypePixelShader;
-        wil::com_ptr<ID3D11PixelShader> _grayscalePixelShader;
-        wil::com_ptr<ID3D11PixelShader> _invertCursorPixelShader;
-        wil::com_ptr<ID3D11BlendState1> _cleartypeBlendState;
-        wil::com_ptr<ID3D11BlendState1> _alphaBlendState;
-        wil::com_ptr<ID3D11BlendState1> _invertCursorBlendState;
-
-        wil::com_ptr<ID3D11RasterizerState> _rasterizerState;
-        wil::com_ptr<ID3D11PixelShader> _textPixelShader;
-        wil::com_ptr<ID3D11BlendState> _textBlendState;
-
-        wil::com_ptr<ID3D11PixelShader> _wireframePixelShader;
-        wil::com_ptr<ID3D11RasterizerState> _wireframeRasterizerState;
-
-        wil::com_ptr<ID3D11Buffer> _constantBuffer;
-        wil::com_ptr<ID3D11InputLayout> _textInputLayout;
-        wil::com_ptr<ID3D11Buffer> _vertexBuffers[2];
-        size_t _vertexBuffers1Size = 0;
-
-        wil::com_ptr<ID3D11Texture2D> _perCellColor;
-        wil::com_ptr<ID3D11ShaderResourceView> _perCellColorView;
-
-        wil::com_ptr<ID3D11Texture2D> _customOffscreenTexture;
-        wil::com_ptr<ID3D11ShaderResourceView> _customOffscreenTextureView;
-        wil::com_ptr<ID3D11RenderTargetView> _customOffscreenTextureTargetView;
-        wil::com_ptr<ID3D11VertexShader> _customVertexShader;
-        wil::com_ptr<ID3D11PixelShader> _customPixelShader;
-        wil::com_ptr<ID3D11Buffer> _customShaderConstantBuffer;
-        wil::com_ptr<ID3D11SamplerState> _customShaderSamplerState;
-        std::chrono::steady_clock::time_point _customShaderStartTime;
-
-        // D2D resources
-        wil::com_ptr<ID3D11Texture2D> _atlasBuffer;
-        wil::com_ptr<ID3D11ShaderResourceView> _atlasView;
-        wil::com_ptr<ID2D1DeviceContext> _d2dRenderTarget;
-        wil::com_ptr<ID2D1DeviceContext4> _d2dRenderTarget4; // Optional. Supported since Windows 10 14393.
+        wil::com_ptr<ID2D1DeviceContext> _renderTarget;
+        wil::com_ptr<ID2D1DeviceContext4> _renderTarget4; // Optional. Supported since Windows 10 14393.
         wil::com_ptr<ID2D1SolidColorBrush> _brush;
-        Buffer<DWRITE_FONT_AXIS_VALUE> _textFormatAxes[2][2];
         wil::com_ptr<ID2D1StrokeStyle> _dottedStrokeStyle;
-
-        wil::com_ptr<ID2D1Bitmap> _d2dBackgroundBitmap;
-        wil::com_ptr<ID2D1BitmapBrush> _d2dBackgroundBrush;
-
-        til::generation_t _fontGeneration;
-        til::generation_t _generation;
-        u16x2 _cellCount;
+        wil::com_ptr<ID2D1Bitmap> _backgroundBitmap;
+        wil::com_ptr<ID2D1BitmapBrush> _backgroundBrush;
 
         u32 _brushColor = 0;
+
+        til::generation_t _generation;
+        til::generation_t _fontGeneration;
+        u16x2 _cellCount;
     };
 }
