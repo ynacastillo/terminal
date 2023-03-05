@@ -8,7 +8,7 @@ namespace Microsoft::Console::Render::Atlas
     {
         BackendD2D(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D11DeviceContext2> deviceContext);
 
-        void Render(const RenderingPayload& payload) override;
+        void Render(RenderingPayload& payload) override;
         bool RequiresContinuousRedraw() noexcept override;
         void WaitUntilCanRender() noexcept override;
 

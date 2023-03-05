@@ -96,7 +96,6 @@ try
     if (_api.scrollOffset != 0)
     {
         const auto nothingInvalid = _api.invalidatedRows.x == _api.invalidatedRows.y;
-        const auto offset = _api.scrollOffset;
 
         if (_api.scrollOffset < 0)
         {
@@ -114,7 +113,7 @@ try
             {
                 const auto beg = _p.rows.begin();
                 const auto end = _p.rows.end();
-                std::move(beg - offset, end, beg);
+                std::move(beg - _api.scrollOffset, end, beg);
             }
         }
         else
@@ -132,14 +131,15 @@ try
             {
                 const auto beg = _p.rows.begin();
                 const auto end = _p.rows.end();
-                std::move_backward(beg, end - offset, end);
+                std::move_backward(beg, end - _api.scrollOffset, end);
             }
         }
     }
 
     for (auto y = _api.invalidatedRows.x; y < _api.invalidatedRows.y; ++y)
     {
-        _p.rows[y].clear();
+        auto& row = _p.rows[y];
+        row.clear(y, _p.s->font->cellSize.x);
     }
 
     _api.dirtyRect = til::rect{ 0, _api.invalidatedRows.x, _p.s->cellCount.x, _api.invalidatedRows.y };

@@ -214,7 +214,7 @@ BackendD3D11::BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D
 #endif
 }
 
-void BackendD3D11::Render(const RenderingPayload& p)
+void BackendD3D11::Render(RenderingPayload& p)
 {
     _debugUpdateShaders();
 
@@ -222,8 +222,6 @@ void BackendD3D11::Render(const RenderingPayload& p)
     {
         _handleSettingsUpdate(p);
     }
-
-    _instancesSize = 0;
 
     // After a Present() the render target becomes unbound.
     _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
@@ -907,7 +905,7 @@ void BackendD3D11::_drawBackground(const RenderingPayload& p)
     }
 }
 
-void BackendD3D11::_drawText(const RenderingPayload& p)
+void BackendD3D11::_drawText(RenderingPayload& p)
 {
     if (_resetGlyphAtlasNeeded)
     {
@@ -915,17 +913,19 @@ void BackendD3D11::_drawText(const RenderingPayload& p)
         _resetGlyphAtlasNeeded = false;
     }
 
-    auto baselineY = p.s->font->baselineInDIP;
-    for (const auto& row : p.rows)
+    u16 y = 0;
+
+    for (auto& row : p.rows)
     {
+        const auto baselineY = y * p.d.font.cellSizeDIP.y + p.s->font->baselineInDIP;
         f32 cumulativeAdvance = 0;
 
         for (const auto& m : row.mappings)
         {
-            for (auto i = m.glyphsFrom; i < m.glyphsTo; ++i)
+            for (auto x = m.glyphsFrom; x < m.glyphsTo; ++x)
             {
                 bool inserted = false;
-                auto& entry = _glyphCache.FindOrInsert(m.fontFace.get(), row.glyphIndices[i], inserted);
+                auto& entry = _glyphCache.FindOrInsert(m.fontFace.get(), row.glyphIndices[x], inserted);
                 if (inserted)
                 {
                     _d2dBeginDrawing();
@@ -935,25 +935,28 @@ void BackendD3D11::_drawText(const RenderingPayload& p)
                         _d2dEndDrawing();
                         _flushQuads(p);
                         _resetGlyphAtlasAndBeginDraw(p);
-                        --i;
-                        continue;
+                        --x;
+                        continue; // retry
                     }
                 }
 
                 if (entry.shadingType)
                 {
-                    const auto x = (cumulativeAdvance + row.glyphOffsets[i].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
-                    const auto y = (baselineY - row.glyphOffsets[i].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
+                    const auto l = (cumulativeAdvance + row.glyphOffsets[x].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
+                    const auto t = (baselineY - row.glyphOffsets[x].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
                     const auto w = entry.texcoord.right - entry.texcoord.left;
                     const auto h = entry.texcoord.bottom - entry.texcoord.top;
-                    _appendQuad({ x, y, x + w, y + h }, entry.texcoord, row.colors[i], static_cast<ShadingType>(entry.shadingType));
+                    const f32r rect{ l, t, l + w, t + h };
+                    row.top = std::min(row.top, rect.top);
+                    row.bottom = std::max(row.bottom, rect.bottom);
+                    _appendQuad(rect, entry.texcoord, row.colors[x], static_cast<ShadingType>(entry.shadingType));
                 }
 
-                cumulativeAdvance += row.glyphAdvances[i];
+                cumulativeAdvance += row.glyphAdvances[x];
             }
         }
 
-        baselineY += p.d.font.cellSizeDIP.y;
+        ++y;
     }
 
     _d2dEndDrawing();
@@ -967,7 +970,7 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     glyphRun.glyphCount = 1;
     glyphRun.glyphIndices = &entry.glyphIndex;
 
-    auto box = getGlyphRunBlackBox(glyphRun, 0, 0);
+    auto box = GetGlyphRunBlackBox(glyphRun, 0, 0);
     if (box.left >= box.right || box.top >= box.bottom)
     {
         entry = {};
@@ -991,7 +994,7 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
         (rect.x - box.left) * p.d.font.dipPerPixel,
         (rect.y - box.top) * p.d.font.dipPerPixel,
     };
-    const auto colorGlyph = _drawGlyphRun(p.dwriteFactory4.get(), _d2dRenderTarget.get(), _d2dRenderTarget4.get(), baseline, &glyphRun, _brush.get());
+    const auto colorGlyph = DrawGlyphRun(_d2dRenderTarget.get(), _d2dRenderTarget4.get(), p.dwriteFactory4.get(), baseline, &glyphRun, _brush.get());
 
     entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::Passthrough : (p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType : ShadingType::TextGrayscale));
     entry.offset.x = box.left;
@@ -1089,7 +1092,7 @@ void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& 
 
 void BackendD3D11::_drawCursor(const RenderingPayload& p)
 {
-    if (p.cursorRect.non_empty())
+    if (p.cursorRect)
     {
         const auto color = p.s->cursor->cursorColor;
         if (color == 0xffffffff)

@@ -18,7 +18,7 @@ BackendD2D::BackendD2D(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D11De
 {
 }
 
-void BackendD2D::Render(const RenderingPayload& p)
+void BackendD2D::Render(RenderingPayload& p)
 {
     if (_generation != p.s.generation())
     {
@@ -185,7 +185,7 @@ void BackendD2D::_drawText(const RenderingPayload& p)
                     .y = p.d.font.cellSizeDIP.y * y + p.s->font->baselineInDIP,
                 };
 
-                _drawGlyphRun(p.dwriteFactory4.get(), _renderTarget.get(), _renderTarget4.get(), baseline, &glyphRun, brush);
+                DrawGlyphRun(_renderTarget.get(), _renderTarget4.get(), p.dwriteFactory4.get(), baseline, &glyphRun, brush);
 
                 for (UINT32 i = 0; i < glyphRun.glyphCount; ++i)
                 {
@@ -280,7 +280,7 @@ void BackendD2D::_drawGridlines(const RenderingPayload& p)
 
 void BackendD2D::_drawCursor(const RenderingPayload& p)
 {
-    if (!p.cursorRect.non_empty())
+    if (!p.cursorRect)
     {
         return;
     }

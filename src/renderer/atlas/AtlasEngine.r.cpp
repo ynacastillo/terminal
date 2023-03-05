@@ -25,28 +25,6 @@
 
 using namespace Microsoft::Console::Render::Atlas;
 
-// https://en.wikipedia.org/wiki/Inversion_list
-template<size_t N>
-constexpr bool isInInversionList(const std::array<wchar_t, N>& ranges, wchar_t needle)
-{
-    const auto beg = ranges.begin();
-    const auto end = ranges.end();
-    decltype(ranges.begin()) it;
-
-    // Linear search is faster than binary search for short inputs.
-    if constexpr (N < 16)
-    {
-        it = std::find_if(beg, end, [=](wchar_t v) { return needle < v; });
-    }
-    else
-    {
-        it = std::upper_bound(beg, end, needle);
-    }
-
-    const auto idx = it - beg;
-    return (idx & 1) != 0;
-}
-
 #pragma region IRenderEngine
 
 // Present() is called without the console buffer lock being held.
@@ -74,24 +52,18 @@ try
 }
 catch (const wil::ResultException& exception)
 {
-    const auto hr = exception.GetErrorCode();
-    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == D2DERR_RECREATE_TARGET)
-    {
-        _p.dxgiFactory.reset();
-        _b.reset();
-        return E_PENDING; // Indicate a retry to the renderer
-    }
-
     if (_p.warningCallback)
     {
         try
         {
-            _p.warningCallback(hr);
+            _p.warningCallback(exception.GetErrorCode());
         }
         CATCH_LOG()
     }
 
-    return hr;
+    _p.dxgiFactory.reset();
+    _b.reset();
+    return E_PENDING; // Indicate a retry to the renderer
 }
 CATCH_RETURN()
 

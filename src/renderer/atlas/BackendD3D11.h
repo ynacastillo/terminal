@@ -10,7 +10,7 @@ namespace Microsoft::Console::Render::Atlas
     {
         BackendD3D11(wil::com_ptr<ID3D11Device2> device, wil::com_ptr<ID3D11DeviceContext2> deviceContext);
 
-        void Render(const RenderingPayload& payload) override;
+        void Render(RenderingPayload& payload) override;
         bool RequiresContinuousRedraw() noexcept override;
         void WaitUntilCanRender() noexcept override;
 
@@ -123,7 +123,7 @@ namespace Microsoft::Console::Render::Atlas
         void _flushQuads(const RenderingPayload& p);
         __declspec(noinline) void _recreateInstanceBuffers(const RenderingPayload& p);
         void _drawBackground(const RenderingPayload& p);
-        void _drawText(const RenderingPayload& p);
+        void _drawText(RenderingPayload& p);
         bool _drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry, f32 fontEmSize);
         void _drawGridlines(const RenderingPayload& p);
         void _drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, u32 y);

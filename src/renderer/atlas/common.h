@@ -373,7 +373,7 @@ namespace Microsoft::Console::Render::Atlas
 
     struct ShapedRow
     {
-        void clear() noexcept
+        void clear(u16 y, u16 cellHeight) noexcept
         {
             mappings.clear();
             glyphIndices.clear();
@@ -383,7 +383,12 @@ namespace Microsoft::Console::Render::Atlas
             gridLineRanges.clear();
             selectionFrom = 0;
             selectionTo = 0;
+            top = static_cast<f32>(y * cellHeight);
+            bottom = static_cast<f32>((y + 1) * cellHeight);
         }
+
+        // Deliberately not using INFINITY here, to make it work correctly when compiled under fast-math.
+        static constexpr f32 hugeVal = 1e24f;
 
         std::vector<FontMapping> mappings;
         std::vector<u16> glyphIndices;
@@ -393,6 +398,8 @@ namespace Microsoft::Console::Render::Atlas
         std::vector<GridLineRange> gridLineRanges;
         u16 selectionFrom = 0;
         u16 selectionTo = 0;
+        f32 top = 0;
+        f32 bottom = 0;
     };
 
     struct RenderingPayload
@@ -420,14 +427,14 @@ namespace Microsoft::Console::Render::Atlas
         std::vector<u32> backgroundBitmap;
         std::vector<u32> foregroundBitmap;
         til::rect dirtyRect;
-        u16r cursorRect;
-        i16 scrollOffset = 0;
+        til::rect cursorRect;
+        til::CoordType scrollOffset = 0;
     };
 
     struct IBackend
     {
         virtual ~IBackend() = default;
-        virtual void Render(const RenderingPayload& payload) = 0;
+        virtual void Render(RenderingPayload& payload) = 0;
         virtual bool RequiresContinuousRedraw() noexcept = 0;
         virtual void WaitUntilCanRender() noexcept = 0;
     };

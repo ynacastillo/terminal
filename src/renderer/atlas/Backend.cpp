@@ -16,11 +16,6 @@ void SwapChainManager::Present(const RenderingPayload& p)
 {
     const til::rect fullRect{ 0, 0, p.s->cellCount.x, p.s->cellCount.y };
 
-    if (!p.dirtyRect)
-    {
-        return;
-    }
-
     if (p.dirtyRect != fullRect)
     {
         auto dirtyRectInPx = p.dirtyRect;
@@ -28,6 +23,15 @@ void SwapChainManager::Present(const RenderingPayload& p)
         dirtyRectInPx.top *= p.s->font->cellSize.y;
         dirtyRectInPx.right *= p.s->font->cellSize.x;
         dirtyRectInPx.bottom *= p.s->font->cellSize.y;
+        
+        // This block will enlarge the dirtyRectInPx to handle glyphs that overlap their rows.
+        // TODO: This only works because we redraw the entire back buffer every frame.
+        const auto minY = static_cast<til::CoordType>(p.rows[p.dirtyRect.top].top);
+        const auto maxY = static_cast<til::CoordType>(p.rows[p.dirtyRect.bottom - 1].bottom);
+        dirtyRectInPx.top = clamp(minY, 0, dirtyRectInPx.top);
+        dirtyRectInPx.bottom = clamp(maxY, dirtyRectInPx.bottom, static_cast<til::CoordType>(_targetSize.y));
+
+        // The row's top/bottom coordinates might be outside the 
 
         RECT scrollRect{};
         POINT scrollOffset{};
@@ -40,9 +44,9 @@ void SwapChainManager::Present(const RenderingPayload& p)
         {
             scrollRect = {
                 0,
-                std::max<til::CoordType>(0, p.scrollOffset),
+                std::max(0, p.scrollOffset),
                 p.s->cellCount.x,
-                p.s->cellCount.y + std::min<til::CoordType>(0, p.scrollOffset),
+                p.s->cellCount.y + std::min(0, p.scrollOffset),
             };
             scrollOffset = {
                 0,
@@ -59,7 +63,10 @@ void SwapChainManager::Present(const RenderingPayload& p)
             params.pScrollOffset = &scrollOffset;
         }
 
-        THROW_IF_FAILED(_swapChain->Present1(1, 0, &params));
+        if (const auto hr = _swapChain->Present1(1, 0, &params); FAILED(hr))
+        {
+            THROW_HR(hr);
+        }
     }
     else
     {
@@ -151,9 +158,8 @@ void SwapChainManager::_createSwapChain(const RenderingPayload& p, IUnknown* dev
 
 void SwapChainManager::_updateMatrixTransform(const RenderingPayload& p) const
 {
-    // XAML's SwapChainPanel combines the worst of both worlds and applies a transform to the
-    // swap chain to match the display scale and not just if it got a perspective transform, etc.
-    // This if condition undoes the damage no one asked for. (Seriously though: Why?)
+    // XAML's SwapChainPanel combines the worst of both worlds and always applies a transform to
+    // the swap chain to make it match the display scale. This if condition undoes the damage.
     if (_fontGeneration != p.s->font.generation() && !p.s->target->hwnd)
     {
         const DXGI_MATRIX_3X2_F matrix{
@@ -164,7 +170,8 @@ void SwapChainManager::_updateMatrixTransform(const RenderingPayload& p) const
     }
 }
 
-f32r Microsoft::Console::Render::Atlas::getGlyphRunBlackBox(const DWRITE_GLYPH_RUN& glyphRun, f32 baselineX, f32 baselineY)
+// Returns the theoretical/design design size of the given `DWRITE_GLYPH_RUN`, relative the the given baseline origin.
+f32r Microsoft::Console::Render::Atlas::GetGlyphRunBlackBox(const DWRITE_GLYPH_RUN& glyphRun, f32 baselineX, f32 baselineY)
 {
     DWRITE_FONT_METRICS fontMetrics;
     glyphRun.fontFace->GetMetrics(&fontMetrics);
@@ -221,7 +228,10 @@ f32r Microsoft::Console::Render::Atlas::getGlyphRunBlackBox(const DWRITE_GLYPH_R
     return accumulatedBounds;
 }
 
-bool Microsoft::Console::Render::Atlas::_drawGlyphRun(IDWriteFactory4* dwriteFactory4, ID2D1DeviceContext* d2dRenderTarget, ID2D1DeviceContext4* d2dRenderTarget4, D2D_POINT_2F baselineOrigin, const DWRITE_GLYPH_RUN* glyphRun, ID2D1Brush* foregroundBrush) noexcept
+// Draws a `DWRITE_GLYPH_RUN` at `baselineOrigin` into the given `ID2D1DeviceContext`.
+// `d2dRenderTarget4` and `dwriteFactory4` are optional and used to draw colored glyphs.
+// Returns true if the `DWRITE_GLYPH_RUN` contained a color glyph.
+bool Microsoft::Console::Render::Atlas::DrawGlyphRun(ID2D1DeviceContext* d2dRenderTarget, ID2D1DeviceContext4* d2dRenderTarget4, IDWriteFactory4* dwriteFactory4, D2D_POINT_2F baselineOrigin, const DWRITE_GLYPH_RUN* glyphRun, ID2D1Brush* foregroundBrush) noexcept
 {
     static constexpr auto measuringMode = DWRITE_MEASURING_MODE_NATURAL;
     static constexpr auto formats =
