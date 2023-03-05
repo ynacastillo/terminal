@@ -235,6 +235,7 @@ void Window::_UpdateSystemMetrics() const
 #if TIL_FEATURE_CONHOSTATLASENGINE_ENABLED
         case UseDx::AtlasEngine:
             pAtlasEngine = new AtlasEngine();
+            pAtlasEngine->SetRetroTerminalEffect(true);
             g.pRender->AddRenderEngine(pAtlasEngine);
             break;
 #endif

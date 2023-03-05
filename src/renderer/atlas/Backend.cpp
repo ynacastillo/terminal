@@ -23,15 +23,21 @@ void SwapChainManager::Present(const RenderingPayload& p)
         dirtyRectInPx.top *= p.s->font->cellSize.y;
         dirtyRectInPx.right *= p.s->font->cellSize.x;
         dirtyRectInPx.bottom *= p.s->font->cellSize.y;
-        
+
         // This block will enlarge the dirtyRectInPx to handle glyphs that overlap their rows.
         // TODO: This only works because we redraw the entire back buffer every frame.
-        const auto minY = static_cast<til::CoordType>(p.rows[p.dirtyRect.top].top);
-        const auto maxY = static_cast<til::CoordType>(p.rows[p.dirtyRect.bottom - 1].bottom);
-        dirtyRectInPx.top = clamp(minY, 0, dirtyRectInPx.top);
-        dirtyRectInPx.bottom = clamp(maxY, dirtyRectInPx.bottom, static_cast<til::CoordType>(_targetSize.y));
+        const auto actualDirtyTop = p.rows[p.dirtyRect.top].top;
+        const auto actualDirtyBottom = p.rows[p.dirtyRect.bottom - 1].bottom;
+        // Since rows might be taller than their cells, they might have drawn outside of the viewport.
+        // This use of clamp() below avoids us from writing out of bounds coordinates into dirtyRectInPx.
+        dirtyRectInPx.top = clamp(actualDirtyTop, 0, dirtyRectInPx.top);
+        dirtyRectInPx.bottom = clamp(actualDirtyBottom, dirtyRectInPx.bottom, static_cast<til::CoordType>(_targetSize.y));
 
-        // The row's top/bottom coordinates might be outside the 
+        // TODO
+        //if (p.dirtyRect.right == fullRect.right)
+        //{
+        //    dirtyRectInPx.right = _targetSize.x;
+        //}
 
         RECT scrollRect{};
         POINT scrollOffset{};
@@ -42,22 +48,14 @@ void SwapChainManager::Present(const RenderingPayload& p)
 
         if (p.scrollOffset)
         {
-            scrollRect = {
-                0,
-                std::max(0, p.scrollOffset),
-                p.s->cellCount.x,
-                p.s->cellCount.y + std::min(0, p.scrollOffset),
-            };
-            scrollOffset = {
-                0,
-                p.scrollOffset,
-            };
+            const auto offsetInPx = p.scrollOffset * p.s->font->cellSize.y;
+            const auto width = p.s->cellCount.x * p.s->font->cellSize.x;
+            const auto height = p.s->cellCount.y * p.s->font->cellSize.y;
+            const auto top = std::max(0, offsetInPx);
+            const auto bottom = height + std::min(0, offsetInPx);
 
-            scrollRect.top *= p.s->font->cellSize.y;
-            scrollRect.right *= p.s->font->cellSize.x;
-            scrollRect.bottom *= p.s->font->cellSize.y;
-
-            scrollOffset.y *= p.s->font->cellSize.y;
+            scrollRect = { 0, top, width, bottom };
+            scrollOffset = { 0, offsetInPx };
 
             params.pScrollRect = &scrollRect;
             params.pScrollOffset = &scrollOffset;
@@ -65,6 +63,7 @@ void SwapChainManager::Present(const RenderingPayload& p)
 
         if (const auto hr = _swapChain->Present1(1, 0, &params); FAILED(hr))
         {
+            __debugbreak();
             THROW_HR(hr);
         }
     }

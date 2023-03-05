@@ -69,16 +69,6 @@ namespace Microsoft::Console::Render::Atlas
     };
 
     template<typename T>
-    struct vec3
-    {
-        T x{};
-        T y{};
-        T z{};
-
-        ATLAS_POD_OPS(vec3)
-    };
-
-    template<typename T>
     struct vec4
     {
         T x{};
@@ -114,16 +104,21 @@ namespace Microsoft::Console::Render::Atlas
 
     using i16 = int16_t;
     using i16x2 = vec2<i16>;
+    using i16x4 = vec4<i16>;
+    using i16r = rect<i16>;
 
     using u32 = uint32_t;
     using u32x2 = vec2<u32>;
+    using u32x4 = vec4<u32>;
+    using u32r = rect<u32>;
 
     using i32 = int32_t;
     using i32x2 = vec2<i32>;
+    using i32x4 = vec4<i32>;
+    using i32r = rect<i32>;
 
     using f32 = float;
     using f32x2 = vec2<f32>;
-    using f32x3 = vec3<f32>;
     using f32x4 = vec4<f32>;
     using f32r = rect<f32>;
 
@@ -209,22 +204,22 @@ namespace Microsoft::Console::Render::Atlas
             return _size;
         }
 
-        T* begin() noexcept
+        auto begin() noexcept
         {
             return _data;
         }
 
-        T* begin() const noexcept
+        auto begin() const noexcept
         {
             return _data;
         }
 
-        T* end() noexcept
+        auto end() noexcept
         {
             return _data + _size;
         }
 
-        T* end() const noexcept
+        auto end() const noexcept
         {
             return _data + _size;
         }
@@ -383,12 +378,9 @@ namespace Microsoft::Console::Render::Atlas
             gridLineRanges.clear();
             selectionFrom = 0;
             selectionTo = 0;
-            top = static_cast<f32>(y * cellHeight);
-            bottom = static_cast<f32>((y + 1) * cellHeight);
+            top = y * cellHeight;
+            bottom = top + cellHeight;
         }
-
-        // Deliberately not using INFINITY here, to make it work correctly when compiled under fast-math.
-        static constexpr f32 hugeVal = 1e24f;
 
         std::vector<FontMapping> mappings;
         std::vector<u16> glyphIndices;
@@ -398,8 +390,8 @@ namespace Microsoft::Console::Render::Atlas
         std::vector<GridLineRange> gridLineRanges;
         u16 selectionFrom = 0;
         u16 selectionTo = 0;
-        f32 top = 0;
-        f32 bottom = 0;
+        til::CoordType top = 0;
+        til::CoordType bottom = 0;
     };
 
     struct RenderingPayload
@@ -423,9 +415,8 @@ namespace Microsoft::Console::Render::Atlas
         Dependents d;
 
         // Parameters which change every frame.
-        std::vector<ShapedRow> rows;
-        std::vector<u32> backgroundBitmap;
-        std::vector<u32> foregroundBitmap;
+        Buffer<ShapedRow> rows;
+        Buffer<u32> backgroundBitmap;
         til::rect dirtyRect;
         til::rect cursorRect;
         til::CoordType scrollOffset = 0;

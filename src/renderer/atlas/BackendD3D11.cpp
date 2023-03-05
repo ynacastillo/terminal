@@ -231,8 +231,13 @@ void BackendD3D11::Render(RenderingPayload& p)
     _drawGridlines(p);
     _drawCursor(p);
     _drawSelection(p);
-
     _flushQuads(p);
+
+    if (_customPixelShader)
+    {
+        _executeCustomShader(p);
+    }
+
     _swapChainManager.Present(p);
 }
 
@@ -339,11 +344,13 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
         _device.get(),
         [this]() {
             _renderTargetView.reset();
+            _customRenderTargetView.reset();
             _deviceContext->ClearState();
             _deviceContext->Flush();
         },
         [this]() {
             _renderTargetView.reset();
+            _customRenderTargetView.reset();
             _deviceContext->ClearState();
         });
 
@@ -355,7 +362,6 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
 
     const auto fontChanged = _fontGeneration != p.s->font.generation();
     const auto miscChanged = _miscGeneration != p.s->misc.generation();
-    const auto targetSizeChanged = _targetSize != p.s->targetSize;
     const auto cellCountChanged = _cellCount != p.s->cellCount;
 
     if (fontChanged)
@@ -365,31 +371,26 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
 
         if (_d2dRenderTarget)
         {
-            _d2dRenderTargetUpdateFontSettings(p);
+            _d2dRenderTargetUpdateFontSettings(*p.s->font);
         }
-    }
-
-    if (miscChanged)
-    {
-        _recreateBackgroundBitmapSamplerState(p);
-        _recreateCustomShader(p);
     }
 
     if (cellCountChanged)
     {
-        _recreateBackgroundColorBitmap(p);
+        _recreateBackgroundColorBitmap(p.s->cellCount);
     }
 
-    if (targetSizeChanged || miscChanged)
+    if (miscChanged)
     {
-        _recreateCustomOffscreenTexture(p);
+        _recreateCustomShader(p);
     }
 
-    if (targetSizeChanged || fontChanged)
+    if (_customPixelShader && !_customRenderTargetView)
     {
-        _recreateConstBuffer(p);
+        _recreateCustomRenderTargetView(p.s->targetSize);
     }
 
+    _recreateConstBuffer(p);
     _setupDeviceContextState(p);
 
     _generation = p.s.generation();
@@ -401,9 +402,9 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
 
 void BackendD3D11::_recreateCustomShader(const RenderingPayload& p)
 {
+    _customRenderTargetView.reset();
     _customOffscreenTexture.reset();
     _customOffscreenTextureView.reset();
-    _customOffscreenTextureTargetView.reset();
     _customVertexShader.reset();
     _customPixelShader.reset();
     _customShaderConstantBuffer.reset();
@@ -530,38 +531,38 @@ void BackendD3D11::_recreateCustomShader(const RenderingPayload& p)
     }
 }
 
-void BackendD3D11::_recreateCustomOffscreenTexture(const RenderingPayload& p)
+void BackendD3D11::_recreateCustomRenderTargetView(u16x2 targetSize)
 {
-    if (!p.s->misc->customPixelShaderPath.empty())
-    {
-        // Avoid memory usage spikes by releasing memory first.
-        _customOffscreenTexture.reset();
-        _customOffscreenTextureView.reset();
-        _customOffscreenTextureTargetView.reset();
+    // Avoid memory usage spikes by releasing memory first.
+    _customOffscreenTexture.reset();
+    _customOffscreenTextureView.reset();
 
-        D3D11_TEXTURE2D_DESC desc{};
-        desc.Width = p.s->targetSize.x;
-        desc.Height = p.s->targetSize.y;
-        desc.MipLevels = 1;
-        desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        desc.SampleDesc = { 1, 0 };
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-        THROW_IF_FAILED(_device->CreateTexture2D(&desc, nullptr, _customOffscreenTexture.addressof()));
-        THROW_IF_FAILED(_device->CreateShaderResourceView(_customOffscreenTexture.get(), nullptr, _customOffscreenTextureView.addressof()));
-        THROW_IF_FAILED(_device->CreateRenderTargetView(_customOffscreenTexture.get(), nullptr, _customOffscreenTextureTargetView.addressof()));
-    }
+    // This causes our regular rendered contents to end up in the offscreen texture. We'll then use the
+    // `_customRenderTargetView` to render into the swap chain using the custom (user provided) shader.
+    _customRenderTargetView = std::move(_renderTargetView);
+
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = targetSize.x;
+    desc.Height = targetSize.y;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc = { 1, 0 };
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+    THROW_IF_FAILED(_device->CreateTexture2D(&desc, nullptr, _customOffscreenTexture.addressof()));
+    THROW_IF_FAILED(_device->CreateShaderResourceView(_customOffscreenTexture.get(), nullptr, _customOffscreenTextureView.addressof()));
+    THROW_IF_FAILED(_device->CreateRenderTargetView(_customOffscreenTexture.get(), nullptr, _renderTargetView.addressof()));
 }
 
-void BackendD3D11::_recreateBackgroundColorBitmap(const RenderingPayload& p)
+void BackendD3D11::_recreateBackgroundColorBitmap(u16x2 cellCount)
 {
     // Avoid memory usage spikes by releasing memory first.
     _backgroundBitmap.reset();
     _backgroundBitmapView.reset();
 
     D3D11_TEXTURE2D_DESC desc{};
-    desc.Width = p.s->cellCount.x;
-    desc.Height = p.s->cellCount.y;
+    desc.Width = cellCount.x;
+    desc.Height = cellCount.y;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
     desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -573,28 +574,10 @@ void BackendD3D11::_recreateBackgroundColorBitmap(const RenderingPayload& p)
     THROW_IF_FAILED(_device->CreateShaderResourceView(_backgroundBitmap.get(), nullptr, _backgroundBitmapView.addressof()));
 }
 
-void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const RenderingPayload& p) const
+void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const FontSettings& font)
 {
-    _d2dRenderTarget->SetDpi(p.s->font->dpi, p.s->font->dpi);
-    _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(p.s->font->antialiasingMode));
-}
-
-void BackendD3D11::_recreateBackgroundBitmapSamplerState(const RenderingPayload& p)
-{
-    const auto color = colorFromU32Premultiply<DXGI_RGBA>(p.s->misc->backgroundColor);
-    const D3D11_SAMPLER_DESC desc{
-        .Filter = D3D11_FILTER_MIN_MAG_MIP_POINT,
-        .AddressU = D3D11_TEXTURE_ADDRESS_BORDER,
-        .AddressV = D3D11_TEXTURE_ADDRESS_BORDER,
-        .AddressW = D3D11_TEXTURE_ADDRESS_BORDER,
-        .MipLODBias = 0.0f,
-        .MaxAnisotropy = 1,
-        .ComparisonFunc = D3D11_COMPARISON_NEVER,
-        .BorderColor = { color.r, color.g, color.b, color.a },
-        .MinLOD = -FLT_MAX,
-        .MaxLOD = FLT_MAX,
-    };
-    THROW_IF_FAILED(_device->CreateSamplerState(&desc, _backgroundBitmapSamplerState.put()));
+    _d2dRenderTarget->SetDpi(font.dpi, font.dpi);
+    _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(font.antialiasingMode));
 }
 
 void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
@@ -606,6 +589,9 @@ void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
     }
     {
         PSConstBuffer data;
+        data.backgroundColor = colorFromU32Premultiply<f32x4>(p.s->misc->backgroundColor);
+        data.cellCount = { static_cast<f32>(p.s->cellCount.x), static_cast<f32>(p.s->cellCount.y) };
+        data.cellSize = { static_cast<f32>(p.s->font->cellSize.x), static_cast<f32>(p.s->font->cellSize.y) };
         DWrite_GetGammaRatios(_gamma, data.gammaRatios);
         data.enhancedContrast = p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? _cleartypeEnhancedContrast : _grayscaleEnhancedContrast;
         data.dashedLineLength = p.s->font->underlineWidth * 3.0f;
@@ -634,7 +620,6 @@ void BackendD3D11::_setupDeviceContextState(const RenderingPayload& p)
     ID3D11ShaderResourceView* const resources[]{ _backgroundBitmapView.get(), _glyphAtlasView.get() };
     _deviceContext->PSSetShader(_pixelShader.get(), nullptr, 0);
     _deviceContext->PSSetConstantBuffers(0, 1, _psConstantBuffer.addressof());
-    _deviceContext->PSSetSamplers(0, 1, _backgroundBitmapSamplerState.addressof());
     _deviceContext->PSSetShaderResources(0, 2, &resources[0]);
 
     // OM: Output Merger
@@ -712,7 +697,7 @@ void BackendD3D11::_resetGlyphAtlasAndBeginDraw(const RenderingPayload& p)
             // Ensure that D2D uses the exact same gamma as our shader uses.
             _d2dRenderTarget->SetTextRenderingParams(_textRenderingParams.get());
 
-            _d2dRenderTargetUpdateFontSettings(p);
+            _d2dRenderTargetUpdateFontSettings(*p.s->font);
         }
 
         {
@@ -738,12 +723,12 @@ BackendD3D11::QuadInstance& BackendD3D11::_getLastQuad() noexcept
     return _instances[_instancesSize - 1];
 }
 
-void BackendD3D11::_appendQuad(f32r position, u32 color, ShadingType shadingType)
+void BackendD3D11::_appendQuad(i32r position, u32 color, ShadingType shadingType)
 {
     _appendQuad(position, {}, color, shadingType);
 }
 
-void BackendD3D11::_appendQuad(f32r position, f32r texcoord, u32 color, ShadingType shadingType)
+void BackendD3D11::_appendQuad(i32r position, i32r texcoord, u32 color, ShadingType shadingType)
 {
     if (_instancesSize >= _instances.size())
     {
@@ -893,15 +878,8 @@ void BackendD3D11::_drawBackground(const RenderingPayload& p)
         _deviceContext->Unmap(_backgroundBitmap.get(), 0);
     }
     {
-        const auto targetWidth = static_cast<f32>(p.s->targetSize.x);
-        const auto targetHeight = static_cast<f32>(p.s->targetSize.y);
-        const auto contentWidth = static_cast<f32>(p.s->cellCount.x * p.s->font->cellSize.x);
-        const auto contentHeight = static_cast<f32>(p.s->cellCount.y * p.s->font->cellSize.y);
-        _appendQuad(
-            { 0.0f, 0.0f, targetWidth, targetHeight },
-            { 0.0f, 0.0f, targetWidth / contentWidth, targetHeight / contentHeight },
-            0,
-            ShadingType::Background);
+        const i32r rect{ 0, 0, p.s->targetSize.x, p.s->targetSize.y };
+        _appendQuad(rect, rect, 0, ShadingType::Background);
     }
 }
 
@@ -942,11 +920,11 @@ void BackendD3D11::_drawText(RenderingPayload& p)
 
                 if (entry.shadingType)
                 {
-                    const auto l = (cumulativeAdvance + row.glyphOffsets[x].advanceOffset) * p.d.font.pixelPerDIP + entry.offset.x;
-                    const auto t = (baselineY - row.glyphOffsets[x].ascenderOffset) * p.d.font.pixelPerDIP + entry.offset.y;
+                    const auto l = static_cast<i32>((cumulativeAdvance + row.glyphOffsets[x].advanceOffset) * p.d.font.pixelPerDIP + 0.5f) + entry.offset.x;
+                    const auto t = static_cast<i32>((baselineY - row.glyphOffsets[x].ascenderOffset) * p.d.font.pixelPerDIP + 0.5f) + entry.offset.y;
                     const auto w = entry.texcoord.right - entry.texcoord.left;
                     const auto h = entry.texcoord.bottom - entry.texcoord.top;
-                    const f32r rect{ l, t, l + w, t + h };
+                    const i32r rect{ l, t, l + w, t + h };
                     row.top = std::min(row.top, rect.top);
                     row.bottom = std::max(row.bottom, rect.bottom);
                     _appendQuad(rect, entry.texcoord, row.colors[x], static_cast<ShadingType>(entry.shadingType));
@@ -977,14 +955,16 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
         return true;
     }
 
+    // Add a 1px padding on all 4 sides to avoid neighboring glyphs from overlapping.
+    // The blackbox measurement is only an estimate after all.
     box.left = floorf(box.left * p.d.font.pixelPerDIP) - 1.0f;
     box.top = floorf(box.top * p.d.font.pixelPerDIP) - 1.0f;
     box.right = ceilf(box.right * p.d.font.pixelPerDIP) + 1.0f;
     box.bottom = ceilf(box.bottom * p.d.font.pixelPerDIP) + 1.0f;
 
     stbrp_rect rect{};
-    rect.w = gsl::narrow_cast<int>(box.right - box.left);
-    rect.h = gsl::narrow_cast<int>(box.bottom - box.top);
+    rect.w = gsl::narrow_cast<int>(box.right - box.left + 0.5f);
+    rect.h = gsl::narrow_cast<int>(box.bottom - box.top + 0.5f);
     if (!stbrp_pack_rects(&_rectPacker, &rect, 1))
     {
         return false;
@@ -997,18 +977,18 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     const auto colorGlyph = DrawGlyphRun(_d2dRenderTarget.get(), _d2dRenderTarget4.get(), p.dwriteFactory4.get(), baseline, &glyphRun, _brush.get());
 
     entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::Passthrough : (p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType : ShadingType::TextGrayscale));
-    entry.offset.x = box.left;
-    entry.offset.y = box.top;
-    entry.texcoord.left = static_cast<f32>(rect.x);
-    entry.texcoord.top = static_cast<f32>(rect.y);
-    entry.texcoord.right = static_cast<f32>(rect.x + rect.w);
-    entry.texcoord.bottom = static_cast<f32>(rect.y + rect.h);
+    entry.offset.x = static_cast<i32>(box.left + 0.5f);
+    entry.offset.y = static_cast<i32>(box.top + 0.5f);
+    entry.texcoord.left = rect.x;
+    entry.texcoord.top = rect.y;
+    entry.texcoord.right = rect.x + rect.w;
+    entry.texcoord.bottom = rect.y + rect.h;
     return true;
 }
 
 void BackendD3D11::_drawGridlines(const RenderingPayload& p)
 {
-    u32 y = 0;
+    u16 y = 0;
     for (const auto& row : p.rows)
     {
         if (!row.gridLineRanges.empty())
@@ -1019,37 +999,37 @@ void BackendD3D11::_drawGridlines(const RenderingPayload& p)
     }
 }
 
-void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, u32 y)
+void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& row, u16 y)
 {
-    const auto top = static_cast<f32>(p.s->font->cellSize.y * y);
-    const auto bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+    const auto top = p.s->font->cellSize.y * y;
+    const auto bottom = top + p.s->font->cellSize.y;
 
     for (const auto& r : row.gridLineRanges)
     {
         // AtlasEngine.cpp shouldn't add any gridlines if they don't do anything.
         assert(r.lines.any());
 
-        f32r rect{ static_cast<f32>(r.from * p.s->font->cellSize.x), top, static_cast<f32>(r.to * p.s->font->cellSize.x), bottom };
+        i32r rect{ r.from * p.s->font->cellSize.x, top, r.to * p.s->font->cellSize.x, bottom };
 
         if (r.lines.test(GridLines::Left))
         {
             for (auto i = r.from; i < r.to; ++i)
             {
-                rect.left = static_cast<f32>(i * p.s->font->cellSize.x);
+                rect.left = i * p.s->font->cellSize.x;
                 rect.right = rect.left + p.s->font->thinLineWidth;
                 _appendQuad(rect, r.color, ShadingType::SolidFill);
             }
         }
         if (r.lines.test(GridLines::Top))
         {
-            rect.bottom = rect.top + static_cast<f32>(p.s->font->thinLineWidth);
+            rect.bottom = rect.top + p.s->font->thinLineWidth;
             _appendQuad(rect, r.color, ShadingType::SolidFill);
         }
         if (r.lines.test(GridLines::Right))
         {
             for (auto i = r.to; i > r.from; --i)
             {
-                rect.right = static_cast<f32>(i * p.s->font->cellSize.x);
+                rect.right = i * p.s->font->cellSize.x;
                 rect.left = rect.right - p.s->font->thinLineWidth;
                 _appendQuad(rect, r.color, ShadingType::SolidFill);
             }
@@ -1151,18 +1131,18 @@ void BackendD3D11::_drawInvertedCursor(const RenderingPayload& p)
         const auto cursorColor = isGray ? 0xffc0c0c0 + 2 * (bgReg - 0xff707070) : 0xffffffff;
 
         size_t rectCount = 1;
-        f32r rects[4];
+        i32r rects[4];
         rects[0] = {
-            static_cast<f32>(p.s->font->cellSize.x * x0),
-            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
-            static_cast<f32>(p.s->font->cellSize.x * x1),
-            static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
+            p.s->font->cellSize.x * x0,
+            p.s->font->cellSize.y * p.cursorRect.top,
+            p.s->font->cellSize.x * x1,
+            p.s->font->cellSize.y * p.cursorRect.bottom,
         };
 
         switch (static_cast<CursorType>(p.s->cursor->cursorType))
         {
         case CursorType::Legacy:
-            rects[0].top = rects[0].bottom - (rects[0].bottom - rects[0].top) * static_cast<float>(p.s->cursor->heightPercentage) / 100.0f;
+            rects[0].top = rects[0].bottom - ((rects[0].bottom - rects[0].top) * p.s->cursor->heightPercentage + 50) / 100;
             break;
         case CursorType::VerticalBar:
             rects[0].right = rects[0].left + p.s->font->thinLineWidth;
@@ -1221,18 +1201,18 @@ void BackendD3D11::_drawInvertedCursor(const RenderingPayload& p)
 
 void BackendD3D11::_drawColoredCursor(const RenderingPayload& p, const u32 color)
 {
-    const f32r rect{
-        static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.left),
-        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.top),
-        static_cast<f32>(p.s->font->cellSize.x * p.cursorRect.right),
-        static_cast<f32>(p.s->font->cellSize.y * p.cursorRect.bottom),
+    const i32r rect{
+        p.s->font->cellSize.x * p.cursorRect.left,
+        p.s->font->cellSize.y * p.cursorRect.top,
+        p.s->font->cellSize.x * p.cursorRect.right,
+        p.s->font->cellSize.y * p.cursorRect.bottom,
     };
     _appendQuad(rect, color, ShadingType::SolidFill);
 }
 
 void BackendD3D11::_drawSelection(const RenderingPayload& p)
 {
-    u32 y = 0;
+    u16 y = 0;
     u16 lastFrom = 0;
     u16 lastTo = 0;
 
@@ -1244,15 +1224,15 @@ void BackendD3D11::_drawSelection(const RenderingPayload& p)
             // The way this is implemented isn't very smart, but we also don't have very many rows to iterate through.
             if (row.selectionFrom == lastFrom && row.selectionTo == lastTo)
             {
-                _getLastQuad().position.bottom = static_cast<f32>(p.s->font->cellSize.y * (y + 1));
+                _getLastQuad().position.bottom = p.s->font->cellSize.y * (y + 1);
             }
             else
             {
-                const f32r rect{
-                    static_cast<f32>(p.s->font->cellSize.x * row.selectionFrom),
-                    static_cast<f32>(p.s->font->cellSize.y * y),
-                    static_cast<f32>(p.s->font->cellSize.x * row.selectionTo),
-                    static_cast<f32>(p.s->font->cellSize.y * (y + 1)),
+                const i32r rect{
+                    p.s->font->cellSize.x * row.selectionFrom,
+                    p.s->font->cellSize.y * y,
+                    p.s->font->cellSize.x * row.selectionTo,
+                    p.s->font->cellSize.y * (y + 1),
                 };
                 _appendQuad(rect, p.s->misc->selectionColor, ShadingType::SolidFill);
                 lastFrom = row.selectionFrom;
@@ -1262,6 +1242,61 @@ void BackendD3D11::_drawSelection(const RenderingPayload& p)
 
         y++;
     }
+}
+
+void BackendD3D11::_executeCustomShader(RenderingPayload& p)
+{
+    {
+        CustomConstBuffer data;
+        data.time = std::chrono::duration<f32>(std::chrono::steady_clock::now() - _customShaderStartTime).count();
+        data.scale = p.d.font.pixelPerDIP;
+        data.resolution.x = static_cast<f32>(_cellCount.x * p.s->font->cellSize.x);
+        data.resolution.y = static_cast<f32>(_cellCount.y * p.s->font->cellSize.y);
+        data.background = colorFromU32<f32x4>(p.s->misc->backgroundColor);
+
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        THROW_IF_FAILED(_deviceContext->Map(_customShaderConstantBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
+        memcpy(mapped.pData, &data, sizeof(data));
+        _deviceContext->Unmap(_customShaderConstantBuffer.get(), 0);
+    }
+
+    {
+        // Before we do anything else we have to unbound _renderTargetView from being
+        // a render target, otherwise we can't use it as a shader resource below.
+        _deviceContext->OMSetRenderTargets(1, _customRenderTargetView.addressof(), nullptr);
+
+        // IA: Input Assembler
+        _deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        _deviceContext->IASetIndexBuffer(_indexBuffer.get(), _indicesFormat, 0);
+
+        // VS: Vertex Shader
+        _deviceContext->VSSetShader(_customVertexShader.get(), nullptr, 0);
+        _deviceContext->VSSetConstantBuffers(0, 0, nullptr);
+        _deviceContext->VSSetShaderResources(0, 0, nullptr);
+
+        // RS: Rasterizer Stage
+        D3D11_VIEWPORT viewport{};
+        viewport.Width = static_cast<f32>(p.s->targetSize.x);
+        viewport.Height = static_cast<f32>(p.s->targetSize.y);
+        _deviceContext->RSSetViewports(1, &viewport);
+
+        // PS: Pixel Shader
+        _deviceContext->PSSetShader(_customPixelShader.get(), nullptr, 0);
+        _deviceContext->PSSetConstantBuffers(0, 1, _customShaderConstantBuffer.addressof());
+        _deviceContext->PSSetShaderResources(0, 1, _customOffscreenTextureView.addressof());
+        _deviceContext->PSSetSamplers(0, 1, _customShaderSamplerState.addressof());
+
+        // OM: Output Merger
+        _deviceContext->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+
+        _deviceContext->Draw(4, 0);
+    }
+
+    _setupDeviceContextState(p);
+
+    // With custom shaders, everything might be invalidated, so we have to
+    // indirectly disable Present1() and its dirty rects this way.
+    p.dirtyRect = { 0, 0, p.s->cellCount.x, p.s->cellCount.y };
 }
 
 TIL_FAST_MATH_END

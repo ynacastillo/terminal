@@ -85,7 +85,7 @@ namespace Microsoft::Console::Render::Atlas
 
             ATLAS_POD_OPS(AtlasKeyAttributes)
         };
-        
+
         // AtlasEngine.cpp
         __declspec(noinline) void _handleSettingsUpdate();
         void _recreateFontDependentResources();
@@ -119,7 +119,7 @@ namespace Microsoft::Console::Render::Atlas
 
             // This structure is loosely sorted in chunks from "very often accessed together"
             // to seldom accessed and/or usually not together.
-            
+
             bool invalidatedTitle = false;
             // These two are redundant with TargetSettings/MiscellaneousSettings, but that's because _resolveTransparencySettings()
             // turns the given settings into potentially different actual settings (which are then written into the Settings).

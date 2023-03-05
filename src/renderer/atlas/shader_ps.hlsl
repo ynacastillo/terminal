@@ -6,6 +6,9 @@
 
 cbuffer ConstBuffer : register(b0)
 {
+    float4 backgroundColor;
+    float2 cellCount;
+    float2 cellSize;
     float4 gammaRatios;
     float enhancedContrast;
     float dashedLineLength;
@@ -31,8 +34,13 @@ Output main(PSData data) : SV_Target
     switch (data.shadingType)
     {
     case SHADING_TYPE_TEXT_BACKGROUND:
-        color = background.Sample(backgroundSampler, data.texcoord);
+        float2 pos = data.texcoord / cellSize;
+        color = background[pos];
         weights = float4(1, 1, 1, 1);
+        if (any(pos >= cellCount))
+        {
+            color = backgroundColor;
+        }
         break;
     case SHADING_TYPE_TEXT_GRAYSCALE:
     {

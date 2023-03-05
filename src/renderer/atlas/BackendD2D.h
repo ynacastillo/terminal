@@ -15,7 +15,7 @@ namespace Microsoft::Console::Render::Atlas
     private:
         __declspec(noinline) void _handleSettingsUpdate(const RenderingPayload& p);
         void _drawBackground(const RenderingPayload& p);
-        void _drawText(const RenderingPayload& p);
+        void _drawText(RenderingPayload& p);
         void _drawGridlines(const RenderingPayload& p);
         void _drawCursor(const RenderingPayload& p);
         void _drawSelection(const RenderingPayload& p);

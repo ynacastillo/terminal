@@ -180,10 +180,14 @@ constexpr HRESULT vec2_narrow(U x, U y, vec2<T>& out) noexcept
 
 [[nodiscard]] HRESULT AtlasEngine::UpdateViewport(const til::inclusive_rect& srNewViewport) noexcept
 {
-    _api.s.write()->cellCount = {
+    const u16x2 cellCount{
         gsl::narrow_cast<u16>(srNewViewport.right - srNewViewport.left + 1),
         gsl::narrow_cast<u16>(srNewViewport.bottom - srNewViewport.top + 1),
     };
+    if (_api.s->cellCount != cellCount)
+    {
+        _api.s.write()->cellCount = cellCount;
+    }
     return S_OK;
 }
 

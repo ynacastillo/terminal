@@ -12,8 +12,8 @@
 
 struct VSData
 {
-    float4 position : POSITION;
-    float4 texcoord : TEXCOORD;
+    int4 position : POSITION;
+    int4 texcoord : TEXCOORD;
     uint color : COLOR;
     uint shadingType : ShadingType;
     // Structured Buffers are tightly packed. Nvidia recommends padding them to avoid crossing 128-bit

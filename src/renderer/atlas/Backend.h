@@ -69,7 +69,7 @@ namespace Microsoft::Console::Render::Atlas
         const auto a = static_cast<f32>((rgba >> 24) & 0xff) / 255.0f;
         return { r * a, g * a, b * a, a };
     }
-    
+
     // MSVC STL (version 22000) implements std::clamp<T>(T, T, T) in terms of the generic
     // std::clamp<T, Predicate>(T, T, T, Predicate) with std::less{} as the argument,
     // which introduces branching. While not perfect, this is still better than std::clamp.

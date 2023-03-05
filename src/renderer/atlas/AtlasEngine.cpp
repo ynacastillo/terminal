@@ -93,14 +93,15 @@ try
     }
 
     // Scroll the buffer by the given offset and mark the newly uncovered rows as "invalid".
-    if (_api.scrollOffset != 0)
+    if (const auto offset = _api.scrollOffset)
     {
         const auto nothingInvalid = _api.invalidatedRows.x == _api.invalidatedRows.y;
+        const auto deltaPx = offset * _p.s->font->cellSize.y;
 
-        if (_api.scrollOffset < 0)
+        if (offset < 0)
         {
             // Scroll up (for instance when new text is being written at the end of the buffer).
-            const u16 endRow = _p.s->cellCount.y + _api.scrollOffset;
+            const u16 endRow = _p.s->cellCount.y + offset;
             _api.invalidatedRows.x = nothingInvalid ? endRow : std::min<u16>(_api.invalidatedRows.x, endRow);
             _api.invalidatedRows.y = _p.s->cellCount.y;
 
@@ -110,17 +111,22 @@ try
             // | xxxxxxxxx| -> |xxxxxxx   |  + src  |      < beg - offset
             // |xxxxxxx   |    |          |  |      v
             // +----------+    +----------+  v             < end
+            const auto dest = _p.rows.begin();
+            const auto last = _p.rows.end();
+            const auto first = dest - offset;
+            const auto end = std::move(first, last, dest);
+
+            for (auto it = dest; it != end; ++it)
             {
-                const auto beg = _p.rows.begin();
-                const auto end = _p.rows.end();
-                std::move(beg - _api.scrollOffset, end, beg);
+                it->top += deltaPx;
+                it->bottom += deltaPx;
             }
         }
         else
         {
             // Scroll down.
             _api.invalidatedRows.x = 0;
-            _api.invalidatedRows.y = nothingInvalid ? _api.scrollOffset : std::max<u16>(_api.invalidatedRows.y, _api.scrollOffset);
+            _api.invalidatedRows.y = nothingInvalid ? offset : std::max<u16>(_api.invalidatedRows.y, offset);
 
             // scrollOffset/offset = 1
             // +----------+    +----------+
@@ -128,19 +134,40 @@ try
             // |xxxxxxx   | -> | xxxxxxxxx|  |      ^
             // |          |    |xxxxxxx   |  v      |      < end - offset
             // +----------+    +----------+         + dst  < end
+            const auto first = _p.rows.begin();
+            const auto dest = _p.rows.end();
+            const auto last = dest - offset;
+            const auto beg = std::move_backward(first, last, dest);
+
+            for (auto it = beg; it != dest; ++it)
             {
-                const auto beg = _p.rows.begin();
-                const auto end = _p.rows.end();
-                std::move_backward(beg, end - _api.scrollOffset, end);
+                it->top += deltaPx;
+                it->bottom += deltaPx;
             }
+        }
+
+        // Scrolling the background bitmap is a lot easier because we can rely on memmove which works
+        // with both forwards and backwards copying. It's a mystery why the STL doesn't have this.
+        {
+            const auto width = _p.s->cellCount.x;
+            const auto beg = _p.backgroundBitmap.begin();
+            const auto end = _p.backgroundBitmap.end();
+            const auto dst = beg + std::max<til::CoordType>(0, offset) * width;
+            const auto src = beg - std::min<til::CoordType>(0, offset) * width;
+            const auto count = end - std::max(src, dst);
+            assert(dst >= beg && dst + count <= end);
+            assert(src >= beg && src + count <= end);
+            memmove(dst, src, count * sizeof(u32));
         }
     }
 
     for (auto y = _api.invalidatedRows.x; y < _api.invalidatedRows.y; ++y)
     {
-        auto& row = _p.rows[y];
-        row.clear(y, _p.s->font->cellSize.x);
+        _p.rows[y].clear(y, _p.s->font->cellSize.y);
     }
+
+    assert(_p.s->cellCount.x * _p.s->font->cellSize.x <= _p.s->targetSize.x);
+    assert(_p.s->cellCount.y * _p.s->font->cellSize.y <= _p.s->targetSize.y);
 
     _api.dirtyRect = til::rect{ 0, _api.invalidatedRows.x, _p.s->cellCount.x, _api.invalidatedRows.y };
     _p.dirtyRect = _api.dirtyRect;
@@ -233,7 +260,6 @@ try
 
         std::fill(_api.colorsForeground.begin() + x, _api.colorsForeground.begin() + column, _api.currentColor.x);
         std::fill_n(_p.backgroundBitmap.begin() + (y * _p.s->cellCount.x + x), column - x, _api.currentColor.y);
-        std::fill_n(_p.foregroundBitmap.begin() + (y * _p.s->cellCount.x + x), column - x, _api.currentColor.x);
     }
 
     _api.lastPaintBufferLineCoord = { x, y };
@@ -438,9 +464,8 @@ void AtlasEngine::_recreateCellCountDependentResources()
     _api.glyphAdvances = Buffer<f32>{ projectedGlyphSize };
     _api.glyphOffsets = Buffer<DWRITE_GLYPH_OFFSET>{ projectedGlyphSize };
 
-    _p.rows = std::vector<ShapedRow>(_p.s->cellCount.y);
-    _p.backgroundBitmap = std::vector<u32>(static_cast<size_t>(_p.s->cellCount.x) * _p.s->cellCount.y);
-    _p.foregroundBitmap = std::vector<u32>(static_cast<size_t>(_p.s->cellCount.x) * _p.s->cellCount.y);
+    _p.rows = Buffer<ShapedRow>(_p.s->cellCount.y);
+    _p.backgroundBitmap = Buffer<u32>(static_cast<size_t>(_p.s->cellCount.x) * _p.s->cellCount.y);
 }
 
 void AtlasEngine::_flushBufferLine()

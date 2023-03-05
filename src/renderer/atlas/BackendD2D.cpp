@@ -140,7 +140,7 @@ void BackendD2D::_drawBackground(const RenderingPayload& p)
     _renderTarget->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
 }
 
-void BackendD2D::_drawText(const RenderingPayload& p)
+void BackendD2D::_drawText(RenderingPayload& p)
 {
     // It is possible to create a "_foregroundBrush" similar to how the `_backgroundBrush` is created and
     // use that as the brush for text rendering below. That way we wouldn't have to search `row.colors` for color
@@ -150,9 +150,9 @@ void BackendD2D::_drawText(const RenderingPayload& p)
     // when drawing lots of colors, the extra latency drops performance by >10x when drawing fewer colors.
     // Since fewer colors are more common, I've chosen to go with regular solid-color brushes.
     u16 y = 0;
-    for (const auto& row : p.rows)
+    for (auto& row : p.rows)
     {
-        f32 x = 0.0f;
+        f32 baselineX = 0.0f;
 
         for (const auto& m : row.mappings)
         {
@@ -172,6 +172,7 @@ void BackendD2D::_drawText(const RenderingPayload& p)
 
                 const auto count = it - beg;
                 const auto brush = _brushWithColor(fg);
+                const auto baselineY = p.d.font.cellSizeDIP.y * y + p.s->font->baselineInDIP;
                 const DWRITE_GLYPH_RUN glyphRun{
                     .fontFace = m.fontFace.get(),
                     .fontEmSize = m.fontEmSize,
@@ -180,16 +181,18 @@ void BackendD2D::_drawText(const RenderingPayload& p)
                     .glyphAdvances = &row.glyphAdvances[off],
                     .glyphOffsets = &row.glyphOffsets[off],
                 };
-                const D2D1_POINT_2F baseline{
-                    .x = x,
-                    .y = p.d.font.cellSizeDIP.y * y + p.s->font->baselineInDIP,
-                };
 
-                DrawGlyphRun(_renderTarget.get(), _renderTarget4.get(), p.dwriteFactory4.get(), baseline, &glyphRun, brush);
+                DrawGlyphRun(_renderTarget.get(), _renderTarget4.get(), p.dwriteFactory4.get(), { baselineX, baselineY }, &glyphRun, brush);
+
+                const auto blackBox = GetGlyphRunBlackBox(glyphRun, baselineX, baselineY);
+                // Add a 1px padding to avoid inaccuracies with the blackbox measurement.
+                // It's only an estimate based on the design size after all.
+                row.top = std::min(row.top, static_cast<i32>(ceilf(blackBox.top) + 1.5f));
+                row.bottom = std::max(row.bottom, static_cast<i32>(floorf(blackBox.bottom) + 1.5f));
 
                 for (UINT32 i = 0; i < glyphRun.glyphCount; ++i)
                 {
-                    x += glyphRun.glyphAdvances[i];
+                    baselineX += glyphRun.glyphAdvances[i];
                 }
             } while (it != end);
         }
