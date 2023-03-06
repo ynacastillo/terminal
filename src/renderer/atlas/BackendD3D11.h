@@ -32,12 +32,12 @@ namespace Microsoft::Console::Render::Atlas
         // WARNING: Same rules as for VSConstBuffer above apply.
         struct alignas(16) PSConstBuffer
         {
-            alignas(sizeof(f32x4)) f32x4 backgroundColor;
-            alignas(sizeof(f32x2)) f32x2 cellCount;
-            alignas(sizeof(f32x2)) f32x2 cellSize;
+            alignas(sizeof(f32x4)) f32x4 invertCursorRect;
             alignas(sizeof(f32x4)) f32 gammaRatios[4]{};
             alignas(sizeof(f32)) f32 enhancedContrast = 0;
             alignas(sizeof(f32)) f32 dashedLineLength = 0;
+            alignas(sizeof(f32x2)) f32x2 backgroundBitmapSize;
+            alignas(sizeof(f32x4)) f32x4 backgroundColor;
 #pragma warning(suppress : 4324) // 'PSConstBuffer': structure was padded due to alignment specifier
         };
 
@@ -51,15 +51,20 @@ namespace Microsoft::Console::Render::Atlas
 #pragma warning(suppress : 4324) // 'CustomConstBuffer': structure was padded due to alignment specifier
         };
 
-        enum class ShadingType
+        enum class ShadingType : u32
         {
+            Mask = 0x0ffff,
+            FlagInvertCursor = 0x10000,
+
             Background = 0,
-            TextGrayscale,
-            TextClearType,
-            Passthrough,
-            DashedLine,
-            SolidFill,
+            TextGrayscale = 1,
+            TextClearType = 2,
+            TextColor = 3,
+            Line = 4,
+            DashedLine = 5,
+            SolidFill = 6,
         };
+        ATLAS_FLAG_OPS(ShadingType, u32)
 
         struct alignas(16) QuadInstance
         {
@@ -113,7 +118,7 @@ namespace Microsoft::Console::Render::Atlas
         void _recreateCustomRenderTargetView(u16x2 targetSize);
         void _d2dRenderTargetUpdateFontSettings(const FontSettings& font);
         void _recreateBackgroundColorBitmap(u16x2 cellCount);
-        void _recreateConstBuffer(const RenderingPayload& p);
+        void _recreateConstBuffers(const RenderingPayload& p);
         void _setupDeviceContextState(const RenderingPayload& p);
         void _d2dBeginDrawing();
         void _d2dEndDrawing();
@@ -132,6 +137,7 @@ namespace Microsoft::Console::Render::Atlas
         void _drawCursor(const RenderingPayload& p);
         void _drawInvertedCursor(const RenderingPayload& p);
         void _drawColoredCursor(const RenderingPayload& p, u32 color);
+        size_t _getCursorRects(const RenderingPayload& p, til::CoordType x0, til::CoordType x1, i32r (&rects)[4]);
         void _drawSelection(const RenderingPayload& p);
         void _executeCustomShader(RenderingPayload& p);
 
@@ -154,6 +160,7 @@ namespace Microsoft::Console::Render::Atlas
         Buffer<QuadInstance> _instances;
         size_t _instancesSize = 0;
         DXGI_FORMAT _indicesFormat = DXGI_FORMAT_UNKNOWN;
+        PSConstBuffer _psConstBuffer;
 
         wil::com_ptr<ID3D11RenderTargetView> _customRenderTargetView;
         wil::com_ptr<ID3D11Texture2D> _customOffscreenTexture;

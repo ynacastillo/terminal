@@ -6,12 +6,12 @@
 
 cbuffer ConstBuffer : register(b0)
 {
-    float4 backgroundColor;
-    float2 cellCount;
-    float2 cellSize;
+    float4 invertCursorRect;
     float4 gammaRatios;
     float enhancedContrast;
     float dashedLineLength;
+    float2 backgroundBitmapSize;
+    float4 backgroundColor;
 }
 
 SamplerState backgroundSampler : register(s0);
@@ -28,70 +28,78 @@ struct Output
 Output main(PSData data) : SV_Target
 // clang-format on
 {
-    float4 color;
-    float4 weights;
+    {
+        float4 rect = (data.shadingType & SHADING_TYPE_FLAG_INVERT_CURSOR) ? invertCursorRect : float4(0, 0, 0, 0);
+        if (all(data.position.xy >= rect.xy && data.position.xy < rect.zw))
+        {
+            float4 ip; // integral part
+            float4 frac = modf(data.color * (255.0f / 64.0f), ip);
+            data.color = (3.0f - ip + frac) * (64.0f / 255.0f);
+            data.color = float4(data.color.rgb, 1);
+        }
+    }
 
     switch (data.shadingType)
     {
     case SHADING_TYPE_TEXT_BACKGROUND:
-        float2 pos = data.texcoord / cellSize;
-        color = background[pos];
-        weights = float4(1, 1, 1, 1);
-        if (any(pos >= cellCount))
-        {
-            color = backgroundColor;
-        }
-        break;
+    {
+        Output output;
+        output.color = all(data.texcoord < backgroundBitmapSize) ? background[data.texcoord] : backgroundColor;
+        output.weights = float4(1, 1, 1, 1);
+        return output;
+    }
     case SHADING_TYPE_TEXT_GRAYSCALE:
     {
         // These are independent of the glyph texture and could be moved to the vertex shader or CPU side of things.
-        const float4 foreground = premultiplyColor(data.color);
-        const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
-        const float intensity = DWrite_CalcColorIntensity(data.color.rgb);
+        float4 foreground = premultiplyColor(data.color);
+        float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
+        float intensity = DWrite_CalcColorIntensity(data.color.rgb);
         // These aren't.
-        const float4 glyph = glyphAtlas[data.texcoord];
-        const float contrasted = DWrite_EnhanceContrast(glyph.a, blendEnhancedContrast);
-        const float alphaCorrected = DWrite_ApplyAlphaCorrection(contrasted, intensity, gammaRatios);
-        color = alphaCorrected * foreground;
-        weights = color.aaaa;
-        break;
+        float4 glyph = glyphAtlas[data.texcoord];
+        float contrasted = DWrite_EnhanceContrast(glyph.a, blendEnhancedContrast);
+        float alphaCorrected = DWrite_ApplyAlphaCorrection(contrasted, intensity, gammaRatios);
+
+        Output output;
+        output.color = alphaCorrected * foreground;
+        output.weights = output.color.aaaa;
+        return output;
     }
     case SHADING_TYPE_TEXT_CLEARTYPE:
     {
         // These are independent of the glyph texture and could be moved to the vertex shader or CPU side of things.
-        const float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
+        float blendEnhancedContrast = DWrite_ApplyLightOnDarkContrastAdjustment(enhancedContrast, data.color.rgb);
         // These aren't.
-        const float4 glyph = glyphAtlas[data.texcoord];
-        const float3 contrasted = DWrite_EnhanceContrast3(glyph.rgb, blendEnhancedContrast);
-        const float3 alphaCorrected = DWrite_ApplyAlphaCorrection3(contrasted, data.color.rgb, gammaRatios);
-        weights = float4(alphaCorrected * data.color.a, 1);
-        color = weights * data.color;
-        break;
+        float4 glyph = glyphAtlas[data.texcoord];
+        float3 contrasted = DWrite_EnhanceContrast3(glyph.rgb, blendEnhancedContrast);
+        float3 alphaCorrected = DWrite_ApplyAlphaCorrection3(contrasted, data.color.rgb, gammaRatios);
+
+        Output output;
+        output.weights = float4(alphaCorrected * data.color.a, 1);
+        output.color = output.weights * data.color;
+        return output;
     }
-    case SHADING_TYPE_PASSTHROUGH:
+    case SHADING_TYPE_TEXT_COLOR:
     {
-        color = glyphAtlas[data.texcoord];
-        weights = color.aaaa;
-        break;
+        Output output;
+        output.color = glyphAtlas[data.texcoord];
+        output.weights = output.color.aaaa;
+        return output;
     }
     case SHADING_TYPE_DASHED_LINE:
     {
-        const bool on = frac(data.position.x / dashedLineLength) < 0.333333333f;
-        color = on * premultiplyColor(data.color);
-        weights = color.aaaa;
-        break;
+        bool on = frac(data.position.x / dashedLineLength) < 0.333333333f;
+
+        Output output;
+        output.color = on * premultiplyColor(data.color);
+        output.weights = output.color.aaaa;
+        return output;
     }
-    case SHADING_TYPE_SOLID_FILL:
     default:
     {
-        color = premultiplyColor(data.color);
-        weights = color.aaaa;
-        break;
+        Output output;
+        output.color = premultiplyColor(data.color);
+        output.weights = output.color.aaaa;
+        return output;
     }
     }
-
-    Output output;
-    output.color = color;
-    output.weights = weights;
-    return output;
 }

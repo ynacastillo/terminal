@@ -157,9 +157,6 @@ namespace Microsoft::Console::Render::Atlas
             u16x2 invalidatedRows = invalidatedRowsNone; // x is treated as "top" and y as "bottom"
             i16 scrollOffset = 0;
         } _api;
-
-#undef ATLAS_POD_OPS
-#undef ATLAS_FLAG_OPS
     };
 }
 

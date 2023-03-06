@@ -2,12 +2,15 @@
 // Licensed under the MIT license.
 
 // clang-format off
-#define SHADING_TYPE_TEXT_BACKGROUND    0
-#define SHADING_TYPE_TEXT_GRAYSCALE     1
-#define SHADING_TYPE_TEXT_CLEARTYPE     2
-#define SHADING_TYPE_PASSTHROUGH        3
-#define SHADING_TYPE_DASHED_LINE        4
-#define SHADING_TYPE_SOLID_FILL         5
+#define SHADING_TYPE_FLAG_INVERT_CURSOR 0x10
+
+#define SHADING_TYPE_TEXT_BACKGROUND    0x00
+#define SHADING_TYPE_TEXT_GRAYSCALE     0x11
+#define SHADING_TYPE_TEXT_CLEARTYPE     0x12
+#define SHADING_TYPE_TEXT_COLOR         0x13
+#define SHADING_TYPE_DASHED_LINE        0x14
+#define SHADING_TYPE_LINE               0x15
+#define SHADING_TYPE_SOLID_FILL         0x06
 // clang-format on
 
 struct VSData

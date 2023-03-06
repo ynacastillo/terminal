@@ -21,6 +21,8 @@ TIL_FAST_MATH_BEGIN
 
 using namespace Microsoft::Console::Render::Atlas;
 
+static constexpr u32 InvertCursorColor = 0xffffffff;
+
 BackendD3D11::GlyphCacheMap::~GlyphCacheMap()
 {
     Clear();
@@ -390,7 +392,7 @@ void BackendD3D11::_handleSettingsUpdate(const RenderingPayload& p)
         _recreateCustomRenderTargetView(p.s->targetSize);
     }
 
-    _recreateConstBuffer(p);
+    _recreateConstBuffers(p);
     _setupDeviceContextState(p);
 
     _generation = p.s.generation();
@@ -580,7 +582,7 @@ void BackendD3D11::_d2dRenderTargetUpdateFontSettings(const FontSettings& font)
     _d2dRenderTarget->SetTextAntialiasMode(static_cast<D2D1_TEXT_ANTIALIAS_MODE>(font.antialiasingMode));
 }
 
-void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
+void BackendD3D11::_recreateConstBuffers(const RenderingPayload& p)
 {
     {
         VSConstBuffer data;
@@ -588,15 +590,20 @@ void BackendD3D11::_recreateConstBuffer(const RenderingPayload& p)
         _deviceContext->UpdateSubresource(_vsConstantBuffer.get(), 0, nullptr, &data, 0, 0);
     }
     {
-        PSConstBuffer data;
-        data.backgroundColor = colorFromU32Premultiply<f32x4>(p.s->misc->backgroundColor);
-        data.cellCount = { static_cast<f32>(p.s->cellCount.x), static_cast<f32>(p.s->cellCount.y) };
-        data.cellSize = { static_cast<f32>(p.s->font->cellSize.x), static_cast<f32>(p.s->font->cellSize.y) };
-        DWrite_GetGammaRatios(_gamma, data.gammaRatios);
-        data.enhancedContrast = p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? _cleartypeEnhancedContrast : _grayscaleEnhancedContrast;
-        data.dashedLineLength = p.s->font->underlineWidth * 3.0f;
-        _deviceContext->UpdateSubresource(_psConstantBuffer.get(), 0, nullptr, &data, 0, 0);
+        _psConstBuffer.invertCursorRect = {};
+        DWrite_GetGammaRatios(_gamma, _psConstBuffer.gammaRatios);
+        _psConstBuffer.enhancedContrast = p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? _cleartypeEnhancedContrast : _grayscaleEnhancedContrast;
+        _psConstBuffer.dashedLineLength = p.s->font->underlineWidth * 3.0f;
+        _psConstBuffer.backgroundBitmapSize = { static_cast<f32>(p.s->cellCount.x * p.s->font->cellSize.x), static_cast<f32>(p.s->cellCount.y * p.s->font->cellSize.y) };
+        _psConstBuffer.backgroundColor = colorFromU32Premultiply<f32x4>(p.s->misc->backgroundColor);
+        _deviceContext->UpdateSubresource(_psConstantBuffer.get(), 0, nullptr, &_psConstBuffer, 0, 0);
     }
+}
+
+void BackendD3D11::_updatePSConstBuffer(const RenderingPayload& p)
+{
+    _psConstBuffer.invertCursorRect = p.s->cursor;
+    _deviceContext->UpdateSubresource(_psConstantBuffer.get(), 0, nullptr, &_psConstBuffer, 0, 0);
 }
 
 void BackendD3D11::_setupDeviceContextState(const RenderingPayload& p)
@@ -976,7 +983,7 @@ bool BackendD3D11::_drawGlyph(const RenderingPayload& p, GlyphCacheEntry& entry,
     };
     const auto colorGlyph = DrawGlyphRun(_d2dRenderTarget.get(), _d2dRenderTarget4.get(), p.dwriteFactory4.get(), baseline, &glyphRun, _brush.get());
 
-    entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::Passthrough : (p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType : ShadingType::TextGrayscale));
+    entry.shadingType = static_cast<u16>(colorGlyph ? ShadingType::TextColor : (p.s->font->antialiasingMode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE ? ShadingType::TextClearType : ShadingType::TextGrayscale));
     entry.offset.x = static_cast<i32>(box.left + 0.5f);
     entry.offset.y = static_cast<i32>(box.top + 0.5f);
     entry.texcoord.left = rect.x;
@@ -1017,13 +1024,13 @@ void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& 
             {
                 rect.left = i * p.s->font->cellSize.x;
                 rect.right = rect.left + p.s->font->thinLineWidth;
-                _appendQuad(rect, r.color, ShadingType::SolidFill);
+                _appendQuad(rect, r.color, ShadingType::Line);
             }
         }
         if (r.lines.test(GridLines::Top))
         {
             rect.bottom = rect.top + p.s->font->thinLineWidth;
-            _appendQuad(rect, r.color, ShadingType::SolidFill);
+            _appendQuad(rect, r.color, ShadingType::Line);
         }
         if (r.lines.test(GridLines::Right))
         {
@@ -1031,19 +1038,19 @@ void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& 
             {
                 rect.right = i * p.s->font->cellSize.x;
                 rect.left = rect.right - p.s->font->thinLineWidth;
-                _appendQuad(rect, r.color, ShadingType::SolidFill);
+                _appendQuad(rect, r.color, ShadingType::Line);
             }
         }
         if (r.lines.test(GridLines::Bottom))
         {
             rect.top = rect.bottom - p.s->font->thinLineWidth;
-            _appendQuad(rect, r.color, ShadingType::SolidFill);
+            _appendQuad(rect, r.color, ShadingType::Line);
         }
         if (r.lines.test(GridLines::Underline))
         {
             rect.top += p.s->font->underlinePos;
             rect.bottom = rect.top + p.s->font->underlineWidth;
-            _appendQuad(rect, r.color, ShadingType::SolidFill);
+            _appendQuad(rect, r.color, ShadingType::Line);
         }
         if (r.lines.test(GridLines::HyperlinkUnderline))
         {
@@ -1055,17 +1062,17 @@ void BackendD3D11::_drawGridlineRow(const RenderingPayload& p, const ShapedRow& 
         {
             rect.top = top + p.s->font->doubleUnderlinePos.x;
             rect.bottom = rect.top + p.s->font->thinLineWidth;
-            _appendQuad(rect, r.color, ShadingType::SolidFill);
+            _appendQuad(rect, r.color, ShadingType::Line);
 
             rect.top = top + p.s->font->doubleUnderlinePos.y;
             rect.bottom = rect.top + p.s->font->thinLineWidth;
-            _appendQuad(rect, r.color, ShadingType::SolidFill);
+            _appendQuad(rect, r.color, ShadingType::Line);
         }
         if (r.lines.test(GridLines::Strikethrough))
         {
             rect.top = top + p.s->font->strikethroughPos;
             rect.bottom = rect.top + p.s->font->strikethroughWidth;
-            _appendQuad(rect, r.color, ShadingType::SolidFill);
+            _appendQuad(rect, r.color, ShadingType::Line);
         }
     }
 }
@@ -1074,8 +1081,11 @@ void BackendD3D11::_drawCursor(const RenderingPayload& p)
 {
     if (p.cursorRect)
     {
+        i32r rects[4];
+        const auto rectCount = _getCursorRects(p, p.cursorRect.left, p.cursorRect.right, rects);
         const auto color = p.s->cursor->cursorColor;
-        if (color == 0xffffffff)
+
+        if (color == InvertCursorColor)
         {
             _drawInvertedCursor(p);
         }
@@ -1103,15 +1113,13 @@ void BackendD3D11::_drawInvertedCursor(const RenderingPayload& p)
     _deviceContext->OMSetBlendState(_blendStateInvert.get(), nullptr, 0xffffffff);
 
     const auto y = p.cursorRect.top * p.s->cellCount.x;
-    const auto left = p.cursorRect.left;
-    const auto right = p.cursorRect.right;
 
-    for (auto x1 = left; x1 < right; ++x1)
+    for (auto x1 = p.cursorRect.left; x1 < p.cursorRect.right; ++x1)
     {
         const auto x0 = x1;
         const auto bgReg = p.backgroundBitmap[y + x1] | 0xff000000;
 
-        for (; x1 < right && (p.backgroundBitmap[y + x1] | 0xff000000) == bgReg; ++x1)
+        for (; x1 < p.cursorRect.right && (p.backgroundBitmap[y + x1] | 0xff000000) == bgReg; ++x1)
         {
         }
 
@@ -1119,75 +1127,16 @@ void BackendD3D11::_drawInvertedCursor(const RenderingPayload& p)
         // The following two lines are an adaptation of "Determine if a word has a byte greater than n"
         // from the well known "Bit Twiddling Hacks" website (this is open domain code).
         // gte = greater than or equal, lte = lower than or equal
-        const auto gte70 = ((bgReg & 0x7f7f7f) + 0x101010 | bgReg) & 0x808080;
-        const auto lte8f = ((bgInv & 0x7f7f7f) + 0x101010 | bgInv) & 0x808080;
-        // isGray will now be true if all 3 channels of the color are in the range [0x70,0x8f].
+        const auto gte70 = ((bgReg & 0x7f7f7f) + 0x202020 | bgReg) & 0x808080;
+        const auto lte8f = ((bgInv & 0x7f7f7f) + 0x202020 | bgInv) & 0x808080;
+        // isGray will now be true if all 3 channels of the color are in the range [0x60,0x9f].
         const auto isGray = (gte70 & lte8f) == 0x808080;
         // The shader will invert the color by calculating `cursorColor - rendertTargetColor`, where
         // `rendertTargetColor` is the color already in the render target view (= all the text, etc.).
-        // To avoid the issue mentioned above, we want to darken the color by -32 in each channel.
-        // To do so we can just pass it a corresponding `cursorColor` in the range [0xc0,0xff].
-        // Since the [0xc0,0xff] range is twice as large as [0x70,0x8f], we multiply by 2.
-        const auto cursorColor = isGray ? 0xffc0c0c0 + 2 * (bgReg - 0xff707070) : 0xffffffff;
-
-        size_t rectCount = 1;
-        i32r rects[4];
-        rects[0] = {
-            p.s->font->cellSize.x * x0,
-            p.s->font->cellSize.y * p.cursorRect.top,
-            p.s->font->cellSize.x * x1,
-            p.s->font->cellSize.y * p.cursorRect.bottom,
-        };
-
-        switch (static_cast<CursorType>(p.s->cursor->cursorType))
-        {
-        case CursorType::Legacy:
-            rects[0].top = rects[0].bottom - ((rects[0].bottom - rects[0].top) * p.s->cursor->heightPercentage + 50) / 100;
-            break;
-        case CursorType::VerticalBar:
-            rects[0].right = rects[0].left + p.s->font->thinLineWidth;
-            break;
-        case CursorType::Underscore:
-            rects[0].top += p.s->font->underlinePos;
-            rects[0].bottom = rects[0].top + p.s->font->underlineWidth;
-            break;
-        case CursorType::EmptyBox:
-            rectCount = 2;
-            if (x0 == left)
-            {
-                rects[rectCount] = rects[0];
-                rects[rectCount].top += p.s->font->thinLineWidth;
-                rects[rectCount].bottom -= p.s->font->thinLineWidth;
-                rects[rectCount].right = rects[rectCount].left + p.s->font->thinLineWidth;
-                ++rectCount;
-            }
-            if (x1 == right)
-            {
-                rects[rectCount] = rects[0];
-                rects[rectCount].top += p.s->font->thinLineWidth;
-                rects[rectCount].bottom -= p.s->font->thinLineWidth;
-                rects[rectCount].left = rects[rectCount].right - p.s->font->thinLineWidth;
-                ++rectCount;
-            }
-            rects[1] = rects[0];
-            rects[0].bottom = rects[0].top + p.s->font->thinLineWidth;
-            rects[1].top = rects[1].bottom - p.s->font->thinLineWidth;
-            break;
-        case CursorType::FullBox:
-            break;
-        case CursorType::DoubleUnderscore:
-        {
-            rects[1] = rects[0];
-            rects[0].top += p.s->font->doubleUnderlinePos.x;
-            rects[0].bottom = rects[0].top + p.s->font->thinLineWidth;
-            rects[1].top += p.s->font->doubleUnderlinePos.y;
-            rects[1].bottom = rects[1].top + p.s->font->thinLineWidth;
-            rectCount = 2;
-            break;
-        }
-        default:
-            break;
-        }
+        // To avoid the issue mentioned above, we want to darken the color by -64 in each channel.
+        // To do so we can just pass it a corresponding `cursorColor` in the range [0x80,0xff].
+        // Since the [0x80,0xff] range is twice as large as [0x60,0x9f], we multiply by 2.
+        const auto cursorColor = isGray ? 0xff808080 + 2 * (bgReg - 0xff606060) : 0xffffffff;
 
         for (size_t i = 0; i < rectCount; ++i)
         {
@@ -1197,6 +1146,75 @@ void BackendD3D11::_drawInvertedCursor(const RenderingPayload& p)
 
     _flushQuads(p);
     _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
+}
+
+size_t BackendD3D11::_getCursorRects(const RenderingPayload& p, til::CoordType x0, til::CoordType x1, i32r (&rects)[4])
+{
+    if (p.cursorRect.empty())
+    {
+        rects[0] = {};
+        return 0;
+    }
+
+    size_t rectCount = 1;
+    rects[0] = {
+        p.s->font->cellSize.x * x0,
+        p.s->font->cellSize.y * p.cursorRect.top,
+        p.s->font->cellSize.x * x1,
+        p.s->font->cellSize.y * p.cursorRect.bottom,
+    };
+
+    switch (static_cast<CursorType>(p.s->cursor->cursorType))
+    {
+    case CursorType::Legacy:
+        rects[0].top = rects[0].bottom - ((rects[0].bottom - rects[0].top) * p.s->cursor->heightPercentage + 50) / 100;
+        break;
+    case CursorType::VerticalBar:
+        rects[0].right = rects[0].left + p.s->font->thinLineWidth;
+        break;
+    case CursorType::Underscore:
+        rects[0].top += p.s->font->underlinePos;
+        rects[0].bottom = rects[0].top + p.s->font->underlineWidth;
+        break;
+    case CursorType::EmptyBox:
+        rectCount = 2;
+        if (x0 == p.cursorRect.left)
+        {
+            rects[rectCount] = rects[0];
+            rects[rectCount].top += p.s->font->thinLineWidth;
+            rects[rectCount].bottom -= p.s->font->thinLineWidth;
+            rects[rectCount].right = rects[rectCount].left + p.s->font->thinLineWidth;
+            ++rectCount;
+        }
+        if (x1 == p.cursorRect.right)
+        {
+            rects[rectCount] = rects[0];
+            rects[rectCount].top += p.s->font->thinLineWidth;
+            rects[rectCount].bottom -= p.s->font->thinLineWidth;
+            rects[rectCount].left = rects[rectCount].right - p.s->font->thinLineWidth;
+            ++rectCount;
+        }
+        rects[1] = rects[0];
+        rects[0].bottom = rects[0].top + p.s->font->thinLineWidth;
+        rects[1].top = rects[1].bottom - p.s->font->thinLineWidth;
+        break;
+    case CursorType::FullBox:
+        break;
+    case CursorType::DoubleUnderscore:
+    {
+        rects[1] = rects[0];
+        rects[0].top += p.s->font->doubleUnderlinePos.x;
+        rects[0].bottom = rects[0].top + p.s->font->thinLineWidth;
+        rects[1].top += p.s->font->doubleUnderlinePos.y;
+        rects[1].bottom = rects[1].top + p.s->font->thinLineWidth;
+        rectCount = 2;
+        break;
+    }
+    default:
+        break;
+    }
+
+    return rectCount;
 }
 
 void BackendD3D11::_drawColoredCursor(const RenderingPayload& p, const u32 color)
