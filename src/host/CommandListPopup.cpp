@@ -14,8 +14,6 @@
 
 #include "../interactivity/inc/ServiceLocator.hpp"
 
-static constexpr size_t COMMAND_NUMBER_SIZE = 8; // size of command number buffer
-
 // Routine Description:
 // - Calculates what the proposed size of the popup should be, based on the commands in the history
 // Arguments:
@@ -333,109 +331,43 @@ void CommandListPopup::_drawList()
     til::point WriteCoord;
     WriteCoord.x = _region.left + 1;
     WriteCoord.y = _region.top + 1;
-    size_t lStringLength = Width();
-    for (til::CoordType i = 0; i < Height(); ++i)
-    {
-        const OutputCellIterator spaces(UNICODE_SPACE, _attributes, lStringLength);
-        const auto result = _screenInfo.Write(spaces, WriteCoord);
-        lStringLength = result.GetCellDistance(spaces);
-        WriteCoord.y += 1;
-    }
+    const auto width = Width();
 
-    auto api = Microsoft::Console::Interactivity::ServiceLocator::LocateGlobals().api;
+    {
+        std::wstring spaces(gsl::narrow<size_t>(width), L' ');
+
+        for (til::CoordType i = 0; i < Height(); ++i)
+        {
+            RowWriteState state{
+                .text = spaces,
+                .columnBegin = WriteCoord.x,
+                .columnLimit = WriteCoord.x + width,
+            };
+            _screenInfo.GetTextBuffer().ReplaceAll(WriteCoord.y, _attributes, state);
+            WriteCoord.y += 1;
+        }
+    }
 
     WriteCoord.y = _region.top + 1;
     auto i = gsl::narrow<SHORT>(std::max(_bottomIndex - Height() + 1, 0));
     for (; i <= _bottomIndex; i++)
     {
-        CHAR CommandNumber[COMMAND_NUMBER_SIZE];
-        // Write command number to screen.
-        if (0 != _itoa_s(i, CommandNumber, ARRAYSIZE(CommandNumber), 10))
-        {
-            return;
-        }
+        auto str = std::to_wstring(i);
+        str.append(L": ");
+        str.append(_history.GetNth(i));
 
-        auto CommandNumberPtr = CommandNumber;
-
-        size_t CommandNumberLength;
-        if (FAILED(StringCchLengthA(CommandNumberPtr, ARRAYSIZE(CommandNumber), &CommandNumberLength)))
-        {
-            return;
-        }
-        __assume_bound(CommandNumberLength);
-
-        if (CommandNumberLength + 1 >= ARRAYSIZE(CommandNumber))
-        {
-            return;
-        }
-
-        CommandNumber[CommandNumberLength] = ':';
-        CommandNumber[CommandNumberLength + 1] = ' ';
-        CommandNumberLength += 2;
-        if (CommandNumberLength > static_cast<ULONG>(Width()))
-        {
-            CommandNumberLength = static_cast<ULONG>(Width());
-        }
-
-        WriteCoord.x = _region.left + 1;
-
-        LOG_IF_FAILED(api->WriteConsoleOutputCharacterAImpl(_screenInfo,
-                                                            { CommandNumberPtr, CommandNumberLength },
-                                                            WriteCoord,
-                                                            CommandNumberLength));
-
-        // write command to screen
-        auto command = _history.GetNth(i);
-        lStringLength = command.size();
-        {
-            auto lTmpStringLength = lStringLength;
-            auto lPopupLength = static_cast<LONG>(Width() - CommandNumberLength);
-            auto lpStr = command.data();
-            while (lTmpStringLength--)
-            {
-                if (IsGlyphFullWidth(*lpStr++))
-                {
-                    lPopupLength -= 2;
-                }
-                else
-                {
-                    lPopupLength--;
-                }
-
-                if (lPopupLength <= 0)
-                {
-                    lStringLength -= lTmpStringLength;
-                    if (lPopupLength < 0)
-                    {
-                        lStringLength--;
-                    }
-
-                    break;
-                }
-            }
-        }
-
-        WriteCoord.x = gsl::narrow<til::CoordType>(WriteCoord.x + CommandNumberLength);
-        size_t used;
-        LOG_IF_FAILED(api->WriteConsoleOutputCharacterWImpl(_screenInfo,
-                                                            { command.data(), lStringLength },
-                                                            WriteCoord,
-                                                            used));
-
-        // write attributes to screen
+        auto attr = _attributes;
         if (i == _currentCommand)
         {
-            WriteCoord.x = _region.left + 1;
-            // inverted attributes
-            lStringLength = Width();
-            auto inverted = _attributes;
-            inverted.Invert();
-
-            const OutputCellIterator it(inverted, lStringLength);
-            const auto done = _screenInfo.Write(it, WriteCoord);
-
-            lStringLength = done.GetCellDistance(it);
+            attr.Invert();
         }
+
+        RowWriteState state{
+            .text = str,
+            .columnBegin = WriteCoord.x,
+            .columnLimit = WriteCoord.x + width,
+        };
+        _screenInfo.GetTextBuffer().ReplaceAll(WriteCoord.y, attr, state);
 
         WriteCoord.y += 1;
     }

@@ -305,6 +305,22 @@ void TextBuffer::ConsumeGrapheme(std::wstring_view& chars) noexcept
     chars = til::utf16_pop(chars);
 }
 
+void TextBuffer::ReplaceAttributes(til::CoordType row, til::CoordType columnBegin, til::CoordType columnEnd, const TextAttribute& attributes)
+{
+    auto& r = GetRowByOffset(row);
+    r.ReplaceAttributes(columnBegin, columnEnd, attributes);
+}
+
+void TextBuffer::ReplaceAll(til::CoordType row, const TextAttribute& attributes, RowWriteState& state)
+{
+    auto& r = GetRowByOffset(row);
+
+    r.ReplaceText(state);
+    r.ReplaceAttributes(state.columnBegin, state.columnLimit, attributes);
+
+    TriggerRedraw(Viewport::FromExclusive({ state.columnBeginDirty, row, state.columnEndDirty, row + 1 }));
+}
+
 // This function is intended for writing regular "lines" of text and only the `state.text` and`state.columnBegin`
 // fields are being used, whereas `state.columnLimit` is automatically overwritten by the line width of the given row.
 // This allows this function to automatically set the wrap-forced field of the row, which is also the return value.
@@ -2324,39 +2340,41 @@ HRESULT TextBuffer::Reflow(TextBuffer& oldBuffer,
                            TextBuffer& newBuffer,
                            const std::optional<Viewport> lastCharacterViewport,
                            std::optional<std::reference_wrapper<PositionInformation>> positionInfo)
+try
 {
     const auto& oldCursor = oldBuffer.GetCursor();
     auto& newCursor = newBuffer.GetCursor();
-
-    // We need to save the old cursor position so that we can
-    // place the new cursor back on the equivalent character in
-    // the new buffer.
-    const auto cOldCursorPos = oldCursor.GetPosition();
     const auto cOldLastChar = oldBuffer.GetLastNonSpaceCharacter(lastCharacterViewport);
 
-    const auto cOldRowsTotal = cOldLastChar.y + 1;
+    auto findCursor = true;
+    auto findOldMutable = static_cast<bool>(positionInfo);
+    auto findOldVisible = static_cast<bool>(positionInfo);
+    const auto oldCursorPos = oldCursor.GetPosition();
+    til::point newCursorPos;
+    til::CoordType oldY = 0;
+    til::CoordType oldX = 0;
+    til::CoordType newY = 0;
+    til::CoordType newX = 0;
+    til::CoordType newWidth = newBuffer.GetSize().Width();
+    til::CoordType newHeight = newBuffer.GetSize().Height();
+    til::CoordType oldHeight = cOldLastChar.y + 1;
+    const auto newWidthU16 = gsl::narrow_cast<uint16_t>(newWidth);
 
-    til::point cNewCursorPos;
-    auto fFoundCursorPos = false;
-    auto foundOldMutable = false;
-    auto foundOldVisible = false;
-    auto hr = S_OK;
-    // Loop through all the rows of the old buffer and reprint them into the new buffer
-    til::CoordType iOldRow = 0;
-    for (; iOldRow < cOldRowsTotal; iOldRow++)
+    for (;;)
     {
-        // Fetch the row and its "right" which is the last printable character.
-        const auto& row = oldBuffer.GetRowByOffset(iOldRow);
-        const auto cOldColsTotal = oldBuffer.GetLineWidth(iOldRow);
-        auto iRight = row.MeasureRight();
+        if (oldY >= oldHeight)
+        {
+            break;
+        }
+
+        const auto& oldRow = oldBuffer.GetRowByOffset(oldY);
+        auto& newRow = newBuffer.GetRowByOffset(newY);
 
         // If we're starting a new row, try and preserve the line rendition
         // from the row in the original buffer.
-        const auto newBufferPos = newCursor.GetPosition();
-        if (newBufferPos.x == 0)
+        if (newX == 0)
         {
-            auto& newRow = newBuffer.GetRowByOffset(newBufferPos.y);
-            newRow.SetLineRendition(row.GetLineRendition());
+            newRow.SetLineRendition(oldRow.GetLineRendition());
         }
 
         // There is a special case here. If the row has a "wrap"
@@ -2368,174 +2386,82 @@ HRESULT TextBuffer::Reflow(TextBuffer& oldBuffer,
         // included.)
         // As such, adjust the "right" to be the width of the row
         // to capture all these spaces
-        if (row.WasWrapForced())
+        til::CoordType oldRowLimit = 0;
+        if (oldRow.WasWrapForced())
         {
-            iRight = cOldColsTotal;
-
+            oldRowLimit = oldBuffer.GetLineWidth(oldY);
             // And a combined special case.
             // If we wrapped off the end of the row by adding a
             // piece of padding because of a double byte LEADING
             // character, then remove one from the "right" to
             // leave this padding out of the copy process.
-            if (row.WasDoubleBytePadded())
+            if (oldRow.WasDoubleBytePadded())
             {
-                iRight--;
+                oldRowLimit--;
             }
         }
-
-        // Loop through every character in the current row (up to
-        // the "right" boundary, which is one past the final valid
-        // character)
-        til::CoordType iOldCol = 0;
-        const auto copyRight = iRight;
-        for (; iOldCol < copyRight; iOldCol++)
+        else
         {
-            if (iOldCol == cOldCursorPos.x && iOldRow == cOldCursorPos.y)
-            {
-                cNewCursorPos = newCursor.GetPosition();
-                fFoundCursorPos = true;
-            }
-
-            try
-            {
-                // TODO: MSFT: 19446208 - this should just use an iterator and the inserter...
-                const auto glyph = row.GlyphAt(iOldCol);
-                const auto dbcsAttr = row.DbcsAttrAt(iOldCol);
-                const auto textAttr = row.GetAttrByColumn(iOldCol);
-
-                if (!newBuffer.InsertCharacter(glyph, dbcsAttr, textAttr))
-                {
-                    hr = E_OUTOFMEMORY;
-                    break;
-                }
-            }
-            CATCH_RETURN();
+            oldRowLimit = oldRow.MeasureRight();
         }
 
-        // GH#32: Copy the attributes from the rest of the row into this new buffer.
-        // From where we are in the old buffer, to the end of the row, copy the
-        // remaining attributes.
-        // - if the old buffer is smaller than the new buffer, then just copy
-        //   what we have, as it was. We already copied all _text_ with colors,
-        //   but it's possible for someone to just put some color into the
-        //   buffer to the right of that without any text (as just spaces). The
-        //   buffer looks weird to the user when we resize and it starts losing
-        //   those colors, so we need to copy them over too... as long as there
-        //   is space. The last attr in the row will be extended to the end of
-        //   the row in the new buffer.
-        // - if the old buffer is WIDER, than we might have wrapped onto a new
-        //   line. Use the cursor's position's Y so that we know where the new
-        //   row is, and start writing at the cursor position. Again, the attr
-        //   in the last column of the old row will be extended to the end of the
-        //   row that the text was flowed onto.
-        //   - if the text in the old buffer didn't actually fill the whole
-        //     line in the new buffer, then we didn't wrap. That's fine. just
-        //     copy attributes from the old row till the end of the new row, and
-        //     move on.
-        const auto newRowY = newCursor.GetPosition().y;
-        auto& newRow = newBuffer.GetRowByOffset(newRowY);
-        auto newAttrColumn = newCursor.GetPosition().x;
-        const auto newWidth = newBuffer.GetLineWidth(newRowY);
-        // Stop when we get to the end of the buffer width, or the new position
-        // for inserting an attr would be past the right of the new buffer.
-        for (auto copyAttrCol = iOldCol;
-             copyAttrCol < cOldColsTotal && newAttrColumn < newWidth;
-             copyAttrCol++, newAttrColumn++)
+        const auto oldRowBegin = oldX;
+        const auto newRowBegin = newX;
+        if (oldX < oldRowLimit)
         {
-            try
-            {
-                // TODO: MSFT: 19446208 - this should just use an iterator and the inserter...
-                const auto textAttr = row.GetAttrByColumn(copyAttrCol);
-                if (!newRow.SetAttrToEnd(newAttrColumn, textAttr))
-                {
-                    break;
-                }
-            }
-            CATCH_LOG(); // Not worth dying over.
+            newX = newRow.CopyRangeFrom(newX, til::CoordTypeMax, oldRow, oldX, oldRowLimit);
+            newRow.SetWrapForced(oldRow.WasWrapForced() && newX >= newWidth);
+
+            const auto& oldAttr = oldRow.Attributes();
+            auto& newAttr = newRow.Attributes();
+            const auto attributes = oldAttr.slice(gsl::narrow_cast<uint16_t>(oldRowBegin), oldAttr.size());
+            newAttr.replace(gsl::narrow_cast<uint16_t>(newRowBegin), newAttr.size(), attributes);
+            newAttr.resize_trailing_extent(newWidthU16);
         }
 
+        if (findCursor)
+        {
+            if (oldY == oldCursorPos.y && oldX >= oldCursorPos.x)
+            {
+                newCursorPos = { newX - oldX + oldCursorPos.x, std::min(newY, newHeight - 1) };
+                findCursor = false;
+            }
+        }
         // If we found the old row that the caller was interested in, set the
         // out value of that parameter to the cursor's current Y position (the
         // new location of the _end_ of that row in the buffer).
-        if (positionInfo.has_value())
+        if (findOldMutable)
         {
-            if (!foundOldMutable)
+            if (oldY >= positionInfo->get().mutableViewportTop)
             {
-                if (iOldRow >= positionInfo.value().get().mutableViewportTop)
-                {
-                    positionInfo.value().get().mutableViewportTop = newCursor.GetPosition().y;
-                    foundOldMutable = true;
-                }
+                positionInfo->get().mutableViewportTop = newY;
+                findOldMutable = false;
             }
-
-            if (!foundOldVisible)
+        }
+        if (findOldVisible)
+        {
+            if (oldY >= positionInfo->get().visibleViewportTop)
             {
-                if (iOldRow >= positionInfo.value().get().visibleViewportTop)
-                {
-                    positionInfo.value().get().visibleViewportTop = newCursor.GetPosition().y;
-                    foundOldVisible = true;
-                }
+                positionInfo->get().visibleViewportTop = newY;
+                findOldVisible = false;
             }
         }
 
-        if (SUCCEEDED(hr))
+        if (oldX >= oldRowLimit)
         {
-            // If we didn't have a full row to copy, insert a new
-            // line into the new buffer.
-            // Only do so if we were not forced to wrap. If we did
-            // force a word wrap, then the existing line break was
-            // only because we ran out of space.
-            if (iRight < cOldColsTotal && !row.WasWrapForced())
+            oldY++;
+            oldX = 0;
+            if (!oldRow.WasWrapForced())
             {
-                if (!fFoundCursorPos && (iRight == cOldCursorPos.x && iOldRow == cOldCursorPos.y))
-                {
-                    cNewCursorPos = newCursor.GetPosition();
-                    fFoundCursorPos = true;
-                }
-                // Only do this if it's not the final line in the buffer.
-                // On the final line, we want the cursor to sit
-                // where it is done printing for the cursor
-                // adjustment to follow.
-                if (iOldRow < cOldRowsTotal - 1)
-                {
-                    hr = newBuffer.NewlineCursor() ? hr : E_OUTOFMEMORY;
-                }
-                else
-                {
-                    // If we are on the final line of the buffer, we have one more check.
-                    // We got into this code path because we are at the right most column of a row in the old buffer
-                    // that had a hard return (no wrap was forced).
-                    // However, as we're inserting, the old row might have just barely fit into the new buffer and
-                    // caused a new soft return (wrap was forced) putting the cursor at x=0 on the line just below.
-                    // We need to preserve the memory of the hard return at this point by inserting one additional
-                    // hard newline, otherwise we've lost that information.
-                    // We only do this when the cursor has just barely poured over onto the next line so the hard return
-                    // isn't covered by the soft one.
-                    // e.g.
-                    // The old line was:
-                    // |aaaaaaaaaaaaaaaaaaa | with no wrap which means there was a newline after that final a.
-                    // The cursor was here ^
-                    // And the new line will be:
-                    // |aaaaaaaaaaaaaaaaaaa| and show a wrap at the end
-                    // |                   |
-                    //  ^ and the cursor is now there.
-                    // If we leave it like this, we've lost the newline information.
-                    // So we insert one more newline so a continued reflow of this buffer by resizing larger will
-                    // continue to look as the original output intended with the newline data.
-                    // After this fix, it looks like this:
-                    // |aaaaaaaaaaaaaaaaaaa| no wrap at the end (preserved hard newline)
-                    // |                   |
-                    //  ^ and the cursor is now here.
-                    const auto coordNewCursor = newCursor.GetPosition();
-                    if (coordNewCursor.x == 0 && coordNewCursor.y > 0)
-                    {
-                        if (newBuffer.GetRowByOffset(coordNewCursor.y - 1).WasWrapForced())
-                        {
-                            hr = newBuffer.NewlineCursor() ? hr : E_OUTOFMEMORY;
-                        }
-                    }
-                }
+                newY++;
+                newX = 0;
             }
+        }
+        if (newX >= newWidth)
+        {
+            newY++;
+            newX = 0;
+            newRow.SetWrapForced(true);
         }
     }
 
@@ -2543,99 +2469,42 @@ HRESULT TextBuffer::Reflow(TextBuffer& oldBuffer,
     // printable character. This is to fix the `color 2f` scenario, where you
     // change the buffer colors then resize and everything below the last
     // printable char gets reset. See GH #12567
-    auto newRowY = newCursor.GetPosition().y + 1;
-    const auto newHeight = newBuffer.GetSize().Height();
-    const auto oldHeight = oldBuffer.GetSize().Height();
-    for (;
-         iOldRow < oldHeight && newRowY < newHeight;
-         iOldRow++)
+    for (; oldY < oldHeight && newY < newHeight; ++oldY, ++newY)
     {
-        const auto& row = oldBuffer.GetRowByOffset(iOldRow);
-
-        // Optimization: Since all these rows are below the last printable char,
-        // we can reasonably assume that they are filled with just spaces.
-        // That's convenient, we can just copy the attr row from the old buffer
-        // into the new one, and resize the row to match. We'll rely on the
-        // behavior of ATTR_ROW::Resize to trim down when narrower, or extend
-        // the last attr when wider.
-        auto& newRow = newBuffer.GetRowByOffset(newRowY);
-        const auto newWidth = newBuffer.GetLineWidth(newRowY);
-        newRow.TransferAttributes(row.Attributes(), newWidth);
-
-        newRowY++;
+        const auto& oldRow = oldBuffer.GetRowByOffset(oldY);
+        auto& newRow = newBuffer.GetRowByOffset(newY);
+        newRow.TransferAttributes(oldRow.Attributes(), newWidth);
     }
 
-    if (SUCCEEDED(hr))
+    if (findCursor)
     {
-        // Finish copying remaining parameters from the old text buffer to the new one
-        newBuffer.CopyProperties(oldBuffer);
-        newBuffer.CopyHyperlinkMaps(oldBuffer);
-        newBuffer.CopyPatterns(oldBuffer);
-
-        // If we found where to put the cursor while placing characters into the buffer,
-        //   just put the cursor there. Otherwise we have to advance manually.
-        if (fFoundCursorPos)
+        newCursorPos = {
+            oldCursorPos.x,
+            std::clamp(newY + oldCursorPos.y - oldHeight, 0, newHeight - 1),
+        };
+        if (oldBuffer.GetRowByOffset(oldHeight - 1).WasWrapForced())
         {
-            newCursor.SetPosition(cNewCursorPos);
-        }
-        else
-        {
-            // Advance the cursor to the same offset as before
-            // get the number of newlines and spaces between the old end of text and the old cursor,
-            //   then advance that many newlines and chars
-            auto iNewlines = cOldCursorPos.y - cOldLastChar.y;
-            const auto iIncrements = cOldCursorPos.x - cOldLastChar.x;
-            const auto cNewLastChar = newBuffer.GetLastNonSpaceCharacter();
-
-            // If the last row of the new buffer wrapped, there's going to be one less newline needed,
-            //   because the cursor is already on the next line
-            if (newBuffer.GetRowByOffset(cNewLastChar.y).WasWrapForced())
-            {
-                iNewlines = std::max(iNewlines - 1, 0);
-            }
-            else
-            {
-                // if this buffer didn't wrap, but the old one DID, then the d(columns) of the
-                //   old buffer will be one more than in this buffer, so new need one LESS.
-                if (oldBuffer.GetRowByOffset(cOldLastChar.y).WasWrapForced())
-                {
-                    iNewlines = std::max(iNewlines - 1, 0);
-                }
-            }
-
-            for (auto r = 0; r < iNewlines; r++)
-            {
-                if (!newBuffer.NewlineCursor())
-                {
-                    hr = E_OUTOFMEMORY;
-                    break;
-                }
-            }
-            if (SUCCEEDED(hr))
-            {
-                for (auto c = 0; c < iIncrements - 1; c++)
-                {
-                    if (!newBuffer.IncrementCursor())
-                    {
-                        hr = E_OUTOFMEMORY;
-                        break;
-                    }
-                }
-            }
+            newCursorPos = { newWidth - 1, newY - 1 };
         }
     }
 
-    if (SUCCEEDED(hr))
-    {
-        // Save old cursor size before we delete it
-        const auto ulSize = oldCursor.GetSize();
+    // Set size back to real size as it will be taking over the rendering duties.
+    newCursor.SetSize(oldCursor.GetSize());
+    newCursor.SetPosition(newCursorPos);
 
-        // Set size back to real size as it will be taking over the rendering duties.
-        newCursor.SetSize(ulSize);
+    if (newCursorPos.x >= newWidth)
+    {
+        newBuffer.NewlineCursor();
     }
 
-    return hr;
+    // Finish copying remaining parameters from the old text buffer to the new one
+    newBuffer.CopyProperties(oldBuffer);
+    newBuffer.CopyHyperlinkMaps(oldBuffer);
+    newBuffer.CopyPatterns(oldBuffer);
+
+    return S_OK;
 }
+CATCH_RETURN()
 
 // Method Description:
 // - Adds or updates a hyperlink in our hyperlink table

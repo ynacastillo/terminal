@@ -225,9 +225,8 @@ std::vector<OutputCell> ConsoleImeInfo::s_ConvertToCells(const std::wstring_view
 
     // - Walk through all of the grouped up text, match up the correct attribute to it, and make a new cell.
     size_t attributesUsed = 0;
-    for (const auto& parsedGlyph : til::utf16_iterator{ text })
+    for (const auto& glyph : til::utf16_iterator{ text })
     {
-        const std::wstring_view glyph{ parsedGlyph.data(), parsedGlyph.size() };
         // Collect up attributes that apply to this glyph range.
         auto drawingAttr = s_RetrieveAttributeAt(attributesUsed, attributes, colorArray);
         attributesUsed++;

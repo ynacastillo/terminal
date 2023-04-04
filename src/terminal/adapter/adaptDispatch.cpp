@@ -635,7 +635,7 @@ bool AdaptDispatch::DeleteCharacter(const VTInt count)
 // - <none>
 void AdaptDispatch::_FillRect(TextBuffer& textBuffer, const til::rect& fillRect, const wchar_t fillChar, const TextAttribute fillAttrs)
 {
-    if (fillRect.left < fillRect.right && fillRect.top < fillRect.bottom)
+    if (fillRect)
     {
         const auto fillWidth = gsl::narrow_cast<size_t>(fillRect.right - fillRect.left);
         const auto fillData = OutputCellIterator{ fillChar, fillAttrs, fillWidth };
@@ -1171,12 +1171,6 @@ bool AdaptDispatch::FillRectangularArea(const VTParameter ch, const VTInt top, c
     {
         const auto fillChar = _termOutput.TranslateKey(gsl::narrow_cast<wchar_t>(charValue));
         const auto fillAttributes = textBuffer.GetCurrentAttributes();
-        if (IsGlyphFullWidth(fillChar))
-        {
-            // If the fill char is full width, we need to halve the width of the
-            // fill area, otherwise it'll occupy twice as much space as expected.
-            fillRect.right = fillRect.left + fillRect.width() / 2;
-        }
         _FillRect(textBuffer, fillRect, fillChar, fillAttributes);
     }
 
