@@ -1251,6 +1251,23 @@ bool BackendD3D::_drawGlyph(const RenderingPayload& p, f32 glyphAdvance, const A
     //               box.left       box.right
     //                 (-1)           (+14)
     //
+    const auto enumerator = TranslateColorGlyphRun(p.dwriteFactory4.get(), {}, &glyphRun);
+    auto previousAntialiasingMode = D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE;
+    if (enumerator)
+    {
+        previousAntialiasingMode = _d2dRenderTarget4->GetTextAntialiasMode();
+    }
+    if (previousAntialiasingMode != D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE)
+    {
+        _d2dRenderTarget4->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    }
+    const auto cleanup = wil::scope_exit([&]() {
+        if (previousAntialiasingMode != D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE)
+        {
+            _d2dRenderTarget4->SetTextAntialiasMode(previousAntialiasingMode);
+        }
+    });
+
     D2D1_RECT_F box{};
     THROW_IF_FAILED(_d2dRenderTarget->GetGlyphRunWorldBounds({}, &glyphRun, DWRITE_MEASURING_MODE_NATURAL, &box));
 
@@ -1258,6 +1275,51 @@ bool BackendD3D::_drawGlyph(const RenderingPayload& p, f32 glyphAdvance, const A
     if (box.left >= box.right || box.top >= box.bottom)
     {
         return true;
+    }
+
+    D2D1_RECT_F box2{ 1e38f, 1e38f, -1e38f, -1e38f };
+    if (enumerator)
+    {
+        wil::com_ptr<ID2D1SolidColorBrush> solidBrush;
+
+        for (;;)
+        {
+            BOOL hasRun;
+            THROW_IF_FAILED(enumerator->MoveNext(&hasRun));
+            if (!hasRun)
+            {
+                break;
+            }
+
+            const DWRITE_COLOR_GLYPH_RUN1* colorGlyphRun;
+            THROW_IF_FAILED(enumerator->GetCurrentRun(&colorGlyphRun));
+
+            const D2D1_POINT_2F runOrigin{
+                colorGlyphRun->baselineOriginX,
+                colorGlyphRun->baselineOriginY,
+            };
+
+            D2D1_RECT_F box2sub{};
+            THROW_IF_FAILED(_d2dRenderTarget4->GetGlyphRunWorldBounds(runOrigin, &colorGlyphRun->glyphRun, colorGlyphRun->measuringMode, &box2sub));
+
+            if (box2sub.left < box2sub.right && box2sub.top < box2sub.bottom)
+            {
+                box2.left = std::min(box2.left, box2sub.left);
+                box2.top = std::min(box2.top, box2sub.top);
+                box2.right = std::max(box2.right, box2sub.right);
+                box2.bottom = std::max(box2.bottom, box2sub.bottom);
+            }
+        }
+    }
+    else
+    {
+        box2 = box;
+    }
+
+    //if ((box.right - box.left) > (box2.right - box2.left) || (box.bottom - box.top) > (box2.bottom - box2.top))
+    if (memcmp(&box, &box2, sizeof(box)) != 0)
+    {
+        //__debugbreak();
     }
 
     const auto bl = lrintf(box.left);

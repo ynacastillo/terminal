@@ -232,6 +232,9 @@ void BackendD2D::_drawText(RenderingPayload& p)
 
                 if (bounds.top < bounds.bottom)
                 {
+                    // Because Direct2D has the approximate quality of a 99ct kinder toy, GetGlyphRunWorldBounds
+                    // can't natively measure emojis, so we need to run it once per color glyph run.
+
                     // If you print the top half of a double height row (DECDHL), the expectation is that only
                     // the top half is visible, which requires us to keep the clip rect at the bottom of the row.
                     // (Vice versa for the bottom half of a double height row.)
@@ -252,16 +255,15 @@ void BackendD2D::_drawText(RenderingPayload& p)
             dirtyBottom = std::max(dirtyBottom, row->dirtyBottom);
         }
 
-        const D2D1_RECT_F clipRect{
-            0,
-            static_cast<f32>(row->dirtyTop),
-            static_cast<f32>(p.s->targetSize.x),
-            static_cast<f32>(row->dirtyBottom),
-        };
-        _renderTarget->PushAxisAlignedClip(&clipRect, D2D1_ANTIALIAS_MODE_ALIASED);
-
         if (row->lineRendition != LineRendition::SingleWidth)
         {
+            const D2D1_RECT_F clipRect{
+                0,
+                static_cast<f32>(row->dirtyTop),
+                static_cast<f32>(p.s->targetSize.x),
+                static_cast<f32>(row->dirtyBottom),
+            };
+            _renderTarget->PushAxisAlignedClip(&clipRect, D2D1_ANTIALIAS_MODE_ALIASED);
             baselineY = _drawTextPrepareLineRendition(p, baselineY, row->lineRendition);
         }
 
@@ -311,9 +313,8 @@ void BackendD2D::_drawText(RenderingPayload& p)
         if (row->lineRendition != LineRendition::SingleWidth)
         {
             _drawTextResetLineRendition();
+            _renderTarget->PopAxisAlignedClip();
         }
-
-        _renderTarget->PopAxisAlignedClip();
 
         ++y;
     }
