@@ -210,8 +210,8 @@ namespace Microsoft::Console::Render::Atlas
 
         wil::com_ptr<ID3D11Device2> _device;
         wil::com_ptr<ID3D11DeviceContext2> _deviceContext;
-        wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
 
+        wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
         wil::com_ptr<ID3D11InputLayout> _inputLayout;
         wil::com_ptr<ID3D11VertexShader> _vertexShader;
         wil::com_ptr<ID3D11PixelShader> _pixelShader;

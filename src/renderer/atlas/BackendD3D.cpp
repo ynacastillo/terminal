@@ -222,7 +222,7 @@ void BackendD3D::Render(RenderingPayload& p)
 #endif
 
     // After a Present() the render target becomes unbound.
-    _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
+    _deviceContext->OMSetRenderTargets(1, _customRenderTargetView ? _customRenderTargetView.addressof() : _renderTargetView.addressof(), nullptr);
 
     // Invalidating the render target helps with spotting invalid quad instances and Present1() bugs.
 #if ATLAS_DEBUG_SHOW_DIRTY || ATLAS_DEBUG_DUMP_RENDER_TARGET
@@ -499,10 +499,6 @@ void BackendD3D::_recreateCustomRenderTargetView(u16x2 targetSize)
     _customOffscreenTexture.reset();
     _customOffscreenTextureView.reset();
 
-    // This causes our regular rendered contents to end up in the offscreen texture. We'll then use the
-    // `_customRenderTargetView` to render into the swap chain using the custom (user provided) shader.
-    _customRenderTargetView = std::move(_renderTargetView);
-
     const D3D11_TEXTURE2D_DESC desc{
         .Width = targetSize.x,
         .Height = targetSize.y,
@@ -514,7 +510,7 @@ void BackendD3D::_recreateCustomRenderTargetView(u16x2 targetSize)
     };
     THROW_IF_FAILED(_device->CreateTexture2D(&desc, nullptr, _customOffscreenTexture.addressof()));
     THROW_IF_FAILED(_device->CreateShaderResourceView(_customOffscreenTexture.get(), nullptr, _customOffscreenTextureView.addressof()));
-    THROW_IF_FAILED(_device->CreateRenderTargetView(_customOffscreenTexture.get(), nullptr, _renderTargetView.addressof()));
+    THROW_IF_FAILED(_device->CreateRenderTargetView(_customOffscreenTexture.get(), nullptr, _customRenderTargetView.addressof()));
 }
 
 void BackendD3D::_recreateBackgroundColorBitmap(u16x2 cellCount)
@@ -593,7 +589,7 @@ void BackendD3D::_setupDeviceContextState(const RenderingPayload& p)
 
     // OM: Output Merger
     _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
-    _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
+    _deviceContext->OMSetRenderTargets(1, _customRenderTargetView ? _customRenderTargetView.addressof() : _renderTargetView.addressof(), nullptr);
 }
 
 #ifndef NDEBUG
@@ -815,10 +811,7 @@ void BackendD3D::_resetGlyphAtlas(const RenderingPayload& p)
 
 void BackendD3D::_markStateChange(ID3D11BlendState* blendState)
 {
-    _instancesStateChanges.emplace_back(StateChange{
-        .blendState = blendState,
-        .offset = _instancesCount,
-    });
+    _instancesStateChanges.emplace_back(blendState, _instancesCount);
 }
 
 BackendD3D::QuadInstance& BackendD3D::_getLastQuad() noexcept
@@ -1427,8 +1420,8 @@ void BackendD3D::_drawGlyphPrepareRetry(const RenderingPayload& p)
 }
 
 // If this is a double-height glyph (DECDHL), we need to split it into 2 glyph entries:
-// One for the top half and one for the bottom half, because that's how DECDHL works.This will clip
-// `glyphEntry` to only contain the top/bottom half (as specified by `fontFaceEntry.lineRendition`)
+// One for the top/bottom half each, because that's how DECDHL works. This will clip the
+// `glyphEntry` to only contain the one specified by `fontFaceEntry.lineRendition`
 // and create a second entry in our glyph cache hashmap that contains the other half.
 void BackendD3D::_splitDoubleHeightGlyph(const RenderingPayload& p, const AtlasFontFaceEntryInner& fontFaceEntry, AtlasGlyphEntry& glyphEntry)
 {
@@ -1483,7 +1476,18 @@ void BackendD3D::_drawGridlines(const RenderingPayload& p)
 
 void BackendD3D::_drawGridlineRow(const RenderingPayload& p, const ShapedRow* row, u16 y)
 {
-    const auto top = static_cast<i16>(p.s->font->cellSize.y * y);
+    const auto widthShift = static_cast<u8>(row->lineRendition != LineRendition::SingleWidth);
+    const auto heightShift = static_cast<u8>(row->lineRendition >= LineRendition::DoubleHeightTop);
+    const auto cellWidth = p.s->font->cellSize.x << widthShift;
+    const auto cellHeight = p.s->font->cellSize.y << heightShift;
+
+    auto top = static_cast<i16>(p.s->font->cellSize.y * y);
+    if (row->lineRendition == LineRendition::DoubleHeightBottom)
+    {
+        top -= p.s->font->cellSize.y;
+    }
+
+    const auto bottom = top + cellHeight;
 
     for (const auto& r : row->gridLineRanges)
     {
@@ -1493,6 +1497,8 @@ void BackendD3D::_drawGridlineRow(const RenderingPayload& p, const ShapedRow* ro
         const auto left = static_cast<i16>(r.from * p.s->font->cellSize.x);
         const auto width = static_cast<u16>((r.to - r.from) * p.s->font->cellSize.x);
         const auto appendHorizontalLine = [&](u16 offsetY, u16 height, ShadingType shadingType) {
+            offsetY <<= heightShift;
+            height <<= heightShift;
             _appendQuad() = {
                 .shadingType = shadingType,
                 .position = { left, static_cast<i16>(top + offsetY) },
@@ -1511,16 +1517,32 @@ void BackendD3D::_drawGridlineRow(const RenderingPayload& p, const ShapedRow* ro
 
         if (r.lines.test(GridLines::Left))
         {
-            for (auto i = r.from; i < r.to; ++i)
+            auto posX = r.from * p.s->font->cellSize.x;
+            const auto end = r.to * p.s->font->cellSize.x;
+
+            for (; posX < end; posX += cellWidth)
             {
-                appendVerticalLine(i);
+                _appendQuad() = {
+                    .shadingType = ShadingType::SolidFill,
+                    .position = { static_cast<i16>(posX), top },
+                    .size = { p.s->font->thinLineWidth, p.s->font->cellSize.y },
+                    .color = r.color,
+                };
             }
         }
         if (r.lines.test(GridLines::Right))
         {
-            for (auto i = r.to; i > r.from; --i)
+            auto posX = r.from * p.s->font->cellSize.x + cellWidth - p.s->font->thinLineWidth;
+            const auto end = r.to * p.s->font->cellSize.x;
+
+            for (; posX < end; posX += cellWidth)
             {
-                appendVerticalLine(i);
+                _appendQuad() = {
+                    .shadingType = ShadingType::SolidFill,
+                    .position = { static_cast<i16>(posX), top },
+                    .size = { p.s->font->thinLineWidth, p.s->font->cellSize.y },
+                    .color = r.color,
+                };
             }
         }
         if (r.lines.test(GridLines::Top))
@@ -1529,7 +1551,7 @@ void BackendD3D::_drawGridlineRow(const RenderingPayload& p, const ShapedRow* ro
         }
         if (r.lines.test(GridLines::Bottom))
         {
-            appendHorizontalLine(p.s->font->cellSize.y - p.s->font->thinLineWidth, p.s->font->thinLineWidth, ShadingType::SolidFill);
+            appendHorizontalLine(bottom - p.s->font->thinLineWidth, p.s->font->thinLineWidth, ShadingType::SolidFill);
         }
         if (r.lines.test(GridLines::Underline))
         {
@@ -1581,7 +1603,7 @@ void BackendD3D::_drawCursorPart1(const RenderingPayload& p)
             p.s->font->cellSize.y,
         };
         const auto color = cursorColor == 0xffffffff ? bg ^ 0x3f3f3f : cursorColor;
-        auto& c0 = _cursorRects.emplace_back(CursorRect{ position, size, color });
+        auto& c0 = _cursorRects.emplace_back(position, size, color);
 
         switch (static_cast<CursorType>(p.s->cursor->cursorType))
         {
@@ -1639,6 +1661,16 @@ void BackendD3D::_drawCursorPart1(const RenderingPayload& p)
         }
         default:
             break;
+        }
+    }
+
+    const auto lineRendition = p.rows[p.cursorRect.top]->lineRendition;
+    if (lineRendition != LineRendition::SingleWidth)
+    {
+        for (auto& c : _cursorRects)
+        {
+            c.position.x <<= 1;
+            c.size.x <<= 1;
         }
     }
 
@@ -1791,7 +1823,7 @@ void BackendD3D::_executeCustomShader(RenderingPayload& p)
     {
         // Before we do anything else we have to unbound _renderTargetView from being
         // a render target, otherwise we can't use it as a shader resource below.
-        _deviceContext->OMSetRenderTargets(1, _customRenderTargetView.addressof(), nullptr);
+        _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
 
         // IA: Input Assembler
         _deviceContext->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
@@ -1838,7 +1870,7 @@ void BackendD3D::_executeCustomShader(RenderingPayload& p)
 
         // OM: Output Merger
         _deviceContext->OMSetBlendState(_blendState.get(), nullptr, 0xffffffff);
-        _deviceContext->OMSetRenderTargets(1, _renderTargetView.addressof(), nullptr);
+        _deviceContext->OMSetRenderTargets(1, _customRenderTargetView.addressof(), nullptr);
     }
 
     // With custom shaders, everything might be invalidated, so we have to

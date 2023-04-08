@@ -502,9 +502,9 @@ void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fo
         // Gsub is for GetGlyphs() and Gpos for GetGlyphPlacements().
         //
         // GH#10774: Apparently specifying all of the features is just redundant.
-        fontFeatures.emplace_back(DWRITE_FONT_FEATURE{ DWRITE_FONT_FEATURE_TAG_STANDARD_LIGATURES, 1 });
-        fontFeatures.emplace_back(DWRITE_FONT_FEATURE{ DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_LIGATURES, 1 });
-        fontFeatures.emplace_back(DWRITE_FONT_FEATURE{ DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_ALTERNATES, 1 });
+        fontFeatures.emplace_back(DWRITE_FONT_FEATURE_TAG_STANDARD_LIGATURES, 1);
+        fontFeatures.emplace_back(DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_LIGATURES, 1);
+        fontFeatures.emplace_back(DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_ALTERNATES, 1);
 
         for (const auto& p : features)
         {
@@ -523,7 +523,7 @@ void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fo
                     fontFeatures[2].parameter = p.second;
                     break;
                 default:
-                    fontFeatures.emplace_back(DWRITE_FONT_FEATURE{ tag, p.second });
+                    fontFeatures.emplace_back(tag, p.second);
                     break;
                 }
             }
@@ -537,9 +537,9 @@ void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fo
 
         // AtlasEngine::_recreateFontDependentResources() relies on these fields to
         // exist in this particular order in order to create appropriate default axes.
-        fontAxisValues.emplace_back(DWRITE_FONT_AXIS_VALUE{ DWRITE_FONT_AXIS_TAG_WEIGHT, -1.0f });
-        fontAxisValues.emplace_back(DWRITE_FONT_AXIS_VALUE{ DWRITE_FONT_AXIS_TAG_ITALIC, -1.0f });
-        fontAxisValues.emplace_back(DWRITE_FONT_AXIS_VALUE{ DWRITE_FONT_AXIS_TAG_SLANT, -1.0f });
+        fontAxisValues.emplace_back(DWRITE_FONT_AXIS_TAG_WEIGHT, -1.0f);
+        fontAxisValues.emplace_back(DWRITE_FONT_AXIS_TAG_ITALIC, -1.0f);
+        fontAxisValues.emplace_back(DWRITE_FONT_AXIS_TAG_SLANT, -1.0f);
 
         for (const auto& p : axes)
         {
@@ -558,7 +558,7 @@ void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fo
                     fontAxisValues[2].value = p.second;
                     break;
                 default:
-                    fontAxisValues.emplace_back(DWRITE_FONT_AXIS_VALUE{ tag, p.second });
+                    fontAxisValues.emplace_back(tag, p.second);
                     break;
                 }
             }

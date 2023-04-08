@@ -154,7 +154,7 @@ HRESULT TextAnalysisSink::QueryInterface(const IID& riid, void** ppvObject) noex
 HRESULT __stdcall TextAnalysisSink::SetScriptAnalysis(UINT32 textPosition, UINT32 textLength, const DWRITE_SCRIPT_ANALYSIS* scriptAnalysis) noexcept
 try
 {
-    _results.emplace_back(TextAnalysisSinkResult{ textPosition, textLength, scriptAnalysis->script, static_cast<UINT8>(scriptAnalysis->shapes), 0 });
+    _results.emplace_back(textPosition, textLength, *scriptAnalysis);
     return S_OK;
 }
 CATCH_RETURN()
