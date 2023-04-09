@@ -15,17 +15,17 @@ static constexpr std::wstring_view emoji = L"\xD83E\xDD22"; // U+1F922 nauseated
 static constexpr std::wstring_view ambiguous = L"\x414"; // U+0414 cyrillic capital de
 
 // codepoint and utf16 encoded string
-static const std::vector<std::tuple<unsigned int, std::wstring, CodepointWidth>> testData = {
-    { 0x7, L"\a", CodepointWidth::Narrow }, // BEL
-    { 0x20, L" ", CodepointWidth::Narrow },
-    { 0x39, L"9", CodepointWidth::Narrow },
-    { 0x414, L"\x414", CodepointWidth::Narrow }, // U+0414 cyrillic capital de
-    { 0x1104, L"\x1104", CodepointWidth::Wide }, // U+1104 hangul choseong ssangtikeut
-    { 0x306A, L"\x306A", CodepointWidth::Wide }, // U+306A hiragana na
-    { 0x30CA, L"\x30CA", CodepointWidth::Wide }, // U+30CA katakana na
-    { 0x72D7, L"\x72D7", CodepointWidth::Wide }, // U+72D7
-    { 0x1F47E, L"\xD83D\xDC7E", CodepointWidth::Wide }, // U+1F47E alien monster
-    { 0x1F51C, L"\xD83D\xDD1C", CodepointWidth::Wide } // U+1F51C SOON
+static constexpr std::array testData = {
+    std::pair{ L"\a", 1 }, // BEL
+    std::pair{ L" ", 1 },
+    std::pair{ L"9", 1 },
+    std::pair{ L"\x414", 1 }, // U+0414 cyrillic capital de
+    std::pair{ L"\x1104", 2 }, // U+1104 hangul choseong ssangtikeut
+    std::pair{ L"\x306A", 2 }, // U+306A hiragana na
+    std::pair{ L"\x30CA", 2 }, // U+30CA katakana na
+    std::pair{ L"\x72D7", 2 }, // U+72D7
+    std::pair{ L"\xD83D\xDC7E", 2 }, // U+1F47E alien monster
+    std::pair{ L"\xD83D\xDD1C", 2 } // U+1F51C SOON
 };
 
 class CodepointWidthDetectorTests
@@ -41,11 +41,9 @@ class CodepointWidthDetectorTests
     TEST_METHOD(CanGetWidths)
     {
         CodepointWidthDetector widthDetector;
-        for (const auto& data : testData)
+        for (const auto& [wstr, expected] : testData)
         {
-            const auto& expected = std::get<2>(data);
-            const auto& wstr = std::get<1>(data);
-            const auto result = widthDetector.GetWidth({ wstr.c_str(), wstr.size() });
+            const auto result = widthDetector.GetWidth({ wstr });
             VERIFY_ARE_EQUAL(result, expected);
         }
     }

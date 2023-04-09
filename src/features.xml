@@ -174,4 +174,10 @@
         </alwaysEnabledBrandingTokens>
     </feature>
 
+    <feature>
+        <name>Feature_UnicodeTextSegmentation</name>
+        <description>Enables segmentation of text into extended grapheme clusters</description>
+        <stage>AlwaysEnabled</stage>
+    </feature>
+
 </featureStaging>

@@ -4,6 +4,8 @@
 #include "precomp.h"
 #include "inc/CodepointWidthDetector.hpp"
 
+#include <til/unicode.h>
+
 namespace
 {
     // used to store range data in CodepointWidthDetector's internal map
@@ -14,7 +16,7 @@ namespace
         char32_t isAmbiguous : 1;
     };
 
-    static bool operator<(const UnicodeRange& range, const unsigned int searchTerm) noexcept
+    constexpr bool operator<(const UnicodeRange& range, const unsigned int searchTerm) noexcept
     {
         return range.upperBound < searchTerm;
     }
@@ -331,36 +333,21 @@ namespace
 // - glyph - the utf16 encoded codepoint to search for
 // Return Value:
 // - the width type of the codepoint
-CodepointWidth CodepointWidthDetector::GetWidth(const std::wstring_view& glyph) noexcept
+uint8_t CodepointWidthDetector::GetWidth(const std::wstring_view& glyph) noexcept
 {
-    char32_t codepoint = 0;
-
-    switch (glyph.size())
+    if (glyph.size() == 1 && glyph.front() < 0x80)
     {
-    case 1:
-        codepoint = til::at(glyph, 0);
-        break;
-    case 2:
-        codepoint = (til::at(glyph, 0) & 0x3FF) << 10;
-        codepoint |= til::at(glyph, 1) & 0x3FF;
-        codepoint += 0x10000;
-        break;
-    default:
-        codepoint = 0;
-        break;
+        return 1;
     }
 
-    if (codepoint < 0x80)
+    uint8_t width = 0;
+
+    for (const auto codepoint : til::utf16_32_iterator{ glyph })
     {
-        return CodepointWidth::Narrow;
+        width += _lookupGlyphWidth(codepoint);
     }
 
-    // The return value of _lookupGlyphWidth coincides with the enum value of CodepointWidth
-    // on purpose to allow for this easy conversion to happen. Optimally, we should probably
-    // remove CodepointWidth altogether to allow for zero-width joiners and other characters.
-    static_assert(WI_EnumValue(CodepointWidth::Narrow) == 1);
-    static_assert(WI_EnumValue(CodepointWidth::Wide) == 2);
-    return static_cast<CodepointWidth>(_lookupGlyphWidth(codepoint, glyph));
+    return std::clamp<uint8_t>(width, 1, 2);
 }
 
 // Routine Description:
@@ -371,11 +358,11 @@ CodepointWidth CodepointWidthDetector::GetWidth(const std::wstring_view& glyph) 
 // - true if codepoint is wide
 bool CodepointWidthDetector::IsWide(const std::wstring_view& glyph) noexcept
 {
-    return GetWidth(glyph) == CodepointWidth::Wide;
+    return GetWidth(glyph) == 2;
 }
 
 // GetWidth's slow-path for non-ASCII characters. Returns the number of columns the codepoint takes up in the terminal.
-uint8_t CodepointWidthDetector::_lookupGlyphWidth(const char32_t codepoint, const std::wstring_view& glyph) noexcept
+uint8_t CodepointWidthDetector::_lookupGlyphWidth(const char32_t codepoint) noexcept
 {
 #pragma warning(suppress : 26447) // The function is declared 'noexcept' but calls function 'lower_bound<...>()' which may throw exceptions (f.6).
     const auto it = std::lower_bound(s_wideAndAmbiguousTable.begin(), s_wideAndAmbiguousTable.end(), codepoint);
@@ -386,7 +373,7 @@ uint8_t CodepointWidthDetector::_lookupGlyphWidth(const char32_t codepoint, cons
         width = 2;
         if (it->isAmbiguous)
         {
-            width = _checkFallbackViaCache(codepoint, glyph);
+            width = _checkFallbackViaCache(codepoint);
         }
     }
 
@@ -395,7 +382,7 @@ uint8_t CodepointWidthDetector::_lookupGlyphWidth(const char32_t codepoint, cons
 
 // Call the function specified via SetFallbackMethod() to turn CodepointWidth::Ambiguous into Narrow/Wide.
 // Caches the results in _fallbackCache. This is _lookupGlyphWidth's even-slower-path.
-uint8_t CodepointWidthDetector::_checkFallbackViaCache(const char32_t codepoint, const std::wstring_view& glyph) noexcept
+uint8_t CodepointWidthDetector::_checkFallbackViaCache(const char32_t codepoint) noexcept
 try
 {
     // Ambiguous glyphs are considered narrow by default. See microsoft/terminal#2066 for more info.
@@ -409,7 +396,22 @@ try
         return it->second;
     }
 
-    const uint8_t width = _pfnFallbackMethod(glyph) ? 2 : 1;
+    wchar_t buffer[2];
+    size_t length;
+    if (codepoint <= 0xffff)
+    {
+        buffer[0] = static_cast<wchar_t>(codepoint);
+        length = 1;
+    }
+    else
+    {
+        const auto value = codepoint - 0x10000;
+        buffer[0] = static_cast<wchar_t>(0xD800 + (value >> 10));
+        buffer[1] = static_cast<wchar_t>(0xDC00 + (codepoint & 0x3FF));
+        length = 2;
+    }
+
+    const uint8_t width = _pfnFallbackMethod({ &buffer[0], length }) ? 2 : 1;
     _fallbackCache.insert_or_assign(codepoint, width);
     return width;
 }

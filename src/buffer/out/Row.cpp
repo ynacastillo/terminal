@@ -9,6 +9,20 @@
 #include "textBuffer.hpp"
 #include "../../types/inc/GlyphWidth.hpp"
 
+#if TIL_FEATURE_UNICODETEXTSEGMENTATION_ENABLED
+#include <icu.h>
+#pragma comment(lib, "icu.lib")
+
+using UniqueUBreakIterator = wil::unique_any<UBreakIterator*, decltype(&ubrk_close), &ubrk_close>;
+static const UniqueUBreakIterator icuBreakIterator = []() {
+    UErrorCode error = U_ZERO_ERROR;
+    UniqueUBreakIterator iterator{ ubrk_open(UBRK_CHARACTER, "", nullptr, 0, &error) };
+    FAIL_FAST_IF_MSG(error > U_ZERO_ERROR, "ubrk_open failed with %hs", u_errorName(error));
+    return iterator;
+#pragma warning(suppress : 26426) // Global initializer calls a non-constexpr function '<lambda_5>::operator()' (i.22).)
+}();
+#endif
+
 // The STL is missing a std::iota_n analogue for std::iota, so I made my own.
 template<typename OutIt, typename Diff, typename T>
 constexpr OutIt iota_n(OutIt dest, Diff count, T val)
@@ -418,10 +432,38 @@ catch (...)
     throw;
 }
 
-[[msvc::forceinline]] void ROW::WriteHelper::ReplaceText() noexcept
+[[msvc::forceinline]] void ROW::WriteHelper::ReplaceText()
 {
     size_t ch = chBeg;
 
+#if TIL_FEATURE_UNICODETEXTSEGMENTATION_ENABLED
+    UErrorCode error = U_ZERO_ERROR;
+    ubrk_setText(icuBreakIterator.get(), std::bit_cast<const char16_t*>(chars.data()), gsl::narrow<int32_t>(chars.size()), &error);
+    THROW_HR_IF_MSG(E_UNEXPECTED, error > U_ZERO_ERROR, "ubrk_setText failed with %hs", u_errorName(error));
+
+    for (int32_t ubrk0 = 0, ubrk1; (ubrk1 = ubrk_next(icuBreakIterator.get())) != UBRK_DONE; ubrk0 = ubrk1)
+    {
+        const auto advance = gsl::narrow_cast<uint16_t>(ubrk1 - ubrk0);
+        const auto str = chars.substr(ubrk0, advance);
+        const auto width = str.front() < 0x80 ? 1 : GetGlyphWidth(str);
+
+        const auto colEndNew = gsl::narrow_cast<uint16_t>(colEnd + width);
+        if (colEndNew > colLimit)
+        {
+            colEndDirty = colLimit;
+            break;
+        }
+
+        til::at(row._charOffsets, colEnd++) = gsl::narrow_cast<uint16_t>(ch);
+        for (uint8_t i = 1; i < width; ++i)
+        {
+            til::at(row._charOffsets, colEnd++) = gsl::narrow_cast<uint16_t>(ch | CharOffsetsTrailer);
+        }
+
+        colEndDirty = colEnd;
+        ch += advance;
+    }
+#else
     for (const auto& s : til::utf16_iterator{ chars })
     {
         const auto wide = til::at(s, 0) < 0x80 ? false : IsGlyphFullWidth(s);
@@ -441,6 +483,7 @@ catch (...)
         colEndDirty = colEnd;
         ch += s.size();
     }
+#endif
 
     charsConsumed = ch - chBeg;
 }

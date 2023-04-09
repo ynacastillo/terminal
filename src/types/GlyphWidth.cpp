@@ -12,6 +12,14 @@ static CodepointWidthDetector widthDetector;
 // Function Description:
 // - determines if the glyph represented by the string of characters should be
 //      wide or not. See CodepointWidthDetector::IsWide
+uint8_t GetGlyphWidth(const std::wstring_view& glyph) noexcept
+{
+    return widthDetector.GetWidth(glyph);
+}
+
+// Function Description:
+// - determines if the glyph represented by the string of characters should be
+//      wide or not. See CodepointWidthDetector::IsWide
 bool IsGlyphFullWidth(const std::wstring_view& glyph) noexcept
 {
     return widthDetector.IsWide(glyph);

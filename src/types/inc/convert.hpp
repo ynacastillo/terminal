@@ -17,13 +17,6 @@ Author:
 #include <string>
 #include <string_view>
 
-enum class CodepointWidth : BYTE
-{
-    Ambiguous = 0, // could be narrow or wide depending on the current codepage and font
-    Narrow,
-    Wide,
-};
-
 [[nodiscard]] std::wstring ConvertToW(const UINT codepage,
                                       const std::string_view source);
 

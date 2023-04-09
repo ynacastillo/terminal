@@ -120,7 +120,7 @@ private:
         explicit WriteHelper(ROW& row, til::CoordType columnBegin, til::CoordType columnLimit, const std::wstring_view& chars) noexcept;
         bool IsValid() const noexcept;
         void ReplaceCharacters(til::CoordType width) noexcept;
-        void ReplaceText() noexcept;
+        void ReplaceText();
         void CopyRangeFrom(const std::span<const uint16_t>& charOffsets) noexcept;
         void Finish();
 

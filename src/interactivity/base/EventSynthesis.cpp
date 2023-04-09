@@ -16,9 +16,9 @@ static constexpr WORD leftShiftScanCode = 0x2A;
 // Routine Description:
 // - naively determines the width of a UCS2 encoded wchar (with caveats noted above)
 #pragma warning(suppress : 4505) // this function will be deleted if numpad events are disabled
-static CodepointWidth GetQuickCharWidthLegacyForNumpadEventSynthesis(const wchar_t wch) noexcept
+static bool GetQuickCharWidthLegacyForNumpadEventSynthesis(const wchar_t wch) noexcept
 {
-    if ((0x1100 <= wch && wch <= 0x115f) // From Unicode 9.0, Hangul Choseong is wide
+    return (0x1100 <= wch && wch <= 0x115f) // From Unicode 9.0, Hangul Choseong is wide
         || (0x2e80 <= wch && wch <= 0x303e) // From Unicode 9.0, this range is wide (assorted languages)
         || (0x3041 <= wch && wch <= 0x3094) // Hiragana
         || (0x30a1 <= wch && wch <= 0x30f6) // Katakana
@@ -33,12 +33,7 @@ static CodepointWidth GetQuickCharWidthLegacyForNumpadEventSynthesis(const wchar
         || (0xfe10 <= wch && wch <= 0xfe1f) // From Unicode 9.0, this range is wide [Presentation forms]
         || (0xfe30 <= wch && wch <= 0xfe6b) // From Unicode 9.0, this range is wide [Presentation forms]
         || (0xff01 <= wch && wch <= 0xff5e) // Fullwidth ASCII variants
-        || (0xffe0 <= wch && wch <= 0xffe6)) // Fullwidth symbol variants
-    {
-        return CodepointWidth::Wide;
-    }
-
-    return CodepointWidth::Narrow;
+        || (0xffe0 <= wch && wch <= 0xffe6); // Fullwidth symbol variants
 }
 
 std::deque<std::unique_ptr<KeyEvent>> Microsoft::Console::Interactivity::CharToKeyEvents(const wchar_t wch,
@@ -57,7 +52,7 @@ std::deque<std::unique_ptr<KeyEvent>> Microsoft::Console::Interactivity::CharToK
             WORD CharType = 0;
             GetStringTypeW(CT_CTYPE3, &wch, 1, &CharType);
 
-            if (!(WI_IsFlagSet(CharType, C3_ALPHA) || GetQuickCharWidthLegacyForNumpadEventSynthesis(wch) == CodepointWidth::Wide))
+            if (!(WI_IsFlagSet(CharType, C3_ALPHA) || GetQuickCharWidthLegacyForNumpadEventSynthesis(wch)))
             {
                 // It wasn't alphanumeric or determined to be wide by the old algorithm
                 // if VkKeyScanW fails (char is not in kbd layout), we must
