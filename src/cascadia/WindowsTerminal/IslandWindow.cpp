@@ -1233,6 +1233,7 @@ void IslandWindow::_SetIsFullscreen(const bool fullscreenEnabled)
 winrt::fire_and_forget IslandWindow::SummonWindow(Remoting::SummonWindowBehavior args)
 {
     // On the foreground thread:
+    assert(!_rootGrid.Dispatcher().HasThreadAccess());
     co_await wil::resume_foreground(_rootGrid.Dispatcher());
     _summonWindowRoutineBody(args);
 }

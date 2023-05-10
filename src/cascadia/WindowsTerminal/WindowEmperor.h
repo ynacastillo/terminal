@@ -55,18 +55,19 @@ private:
     bool _quitting{ false };
 
     void _windowStartedHandlerPostXAML(const std::shared_ptr<WindowThread>& sender);
-    void _windowExitedHandler(uint64_t senderID);
+    void _removeWindow(uint64_t senderID);
+    void _decrementWindowCount();
 
     void _becomeMonarch();
     void _numberOfWindowsChanged(const winrt::Windows::Foundation::IInspectable&, const winrt::Windows::Foundation::IInspectable&);
     void _quitAllRequested(const winrt::Windows::Foundation::IInspectable&,
-                           const winrt::Microsoft::Terminal::Remoting::QuitAllRequestedArgs&);
+                           const winrt::Windows::Foundation::IInspectable&);
 
-    winrt::fire_and_forget _windowIsQuakeWindowChanged(winrt::Windows::Foundation::IInspectable sender, winrt::Windows::Foundation::IInspectable args);
-    winrt::fire_and_forget _windowRequestUpdateSettings();
+    void _windowIsQuakeWindowChanged(winrt::Windows::Foundation::IInspectable sender, winrt::Windows::Foundation::IInspectable args);
+    void _windowRequestUpdateSettings();
 
-    winrt::Windows::Foundation::IAsyncAction _saveWindowLayouts();
-    winrt::fire_and_forget _saveWindowLayoutsRepeat();
+    void _saveWindowLayouts();
+    static winrt::fire_and_forget _saveWindowLayoutsRepeat(std::weak_ptr<WindowEmperor> weakThis);
 
     void _createMessageWindow();
 

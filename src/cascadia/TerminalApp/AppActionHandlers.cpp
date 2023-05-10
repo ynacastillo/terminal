@@ -843,9 +843,6 @@ namespace winrt::TerminalApp::implementation
     // on another thread.
     fire_and_forget TerminalPage::_OpenNewWindow(const NewTerminalArgs newTerminalArgs)
     {
-        // Hop to the BG thread
-        co_await winrt::resume_background();
-
         // This will get us the correct exe for dev/preview/release. If you
         // don't stick this in a local, it'll get mangled by ShellExecute. I
         // have no idea why.

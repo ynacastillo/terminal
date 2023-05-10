@@ -49,7 +49,7 @@ static std::wstring _normalizeIconPath(std::wstring_view path)
     if (_isProbableFilePath(fullPath))
     {
         std::filesystem::path asPath{ fullPath };
-        return asPath.make_preferred().wstring();
+        return asPath.make_preferred().native();
     }
     return std::wstring{ fullPath };
 }

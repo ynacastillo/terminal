@@ -180,6 +180,7 @@ snprintf
 spsc
 sregex
 SRWLOC
+srwlock
 SRWLOCK
 STDCPP
 STDMETHOD

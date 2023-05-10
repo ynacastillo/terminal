@@ -41,9 +41,8 @@ namespace
                 // Make a temporary monarch CLSID based on the unpackaged install root
                 std::filesystem::path modulePath{ wil::GetModuleFileNameW<std::wstring>(wil::GetModuleInstanceHandle()) };
                 modulePath.remove_filename();
-                std::wstring pathRootAsString{ modulePath.wstring() };
 
-                return Utils::CreateV5Uuid(processRootHashedGuidBase, std::as_bytes(std::span{ pathRootAsString }));
+                return Utils::CreateV5Uuid(processRootHashedGuidBase, std::as_bytes(std::span{ modulePath.native() }));
             }();
             return processRootHashedGuid;
         }
@@ -416,9 +415,8 @@ namespace winrt::Microsoft::Terminal::Remoting::implementation
     // - <none>
     // Return Value:
     // - <none>
-    winrt::fire_and_forget WindowManager::RequestQuitAll(Remoting::Peasant peasant)
+    void WindowManager::RequestQuitAll(Remoting::Peasant peasant)
     {
-        co_await winrt::resume_background();
         peasant.RequestQuitAll();
     }
 
@@ -445,18 +443,13 @@ namespace winrt::Microsoft::Terminal::Remoting::implementation
         return nullptr;
     }
 
-    winrt::fire_and_forget WindowManager::RequestMoveContent(winrt::hstring window,
-                                                             winrt::hstring content,
-                                                             uint32_t tabIndex,
-                                                             Windows::Foundation::IReference<Windows::Foundation::Rect> windowBounds)
+    void WindowManager::RequestMoveContent(winrt::hstring window, winrt::hstring content, uint32_t tabIndex, Windows::Foundation::IReference<Windows::Foundation::Rect> windowBounds)
     {
-        co_await winrt::resume_background();
         _monarch.RequestMoveContent(window, content, tabIndex, windowBounds);
     }
 
-    winrt::fire_and_forget WindowManager::RequestSendContent(Remoting::RequestReceiveContentArgs args)
+    void WindowManager::RequestSendContent(Remoting::RequestReceiveContentArgs args)
     {
-        co_await winrt::resume_background();
         _monarch.RequestSendContent(args);
     }
 }

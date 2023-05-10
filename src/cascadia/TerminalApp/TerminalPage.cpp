@@ -403,6 +403,8 @@ namespace winrt::TerminalApp::implementation
 
     winrt::fire_and_forget TerminalPage::NewTerminalByDrop(winrt::Windows::UI::Xaml::DragEventArgs& e)
     {
+        const auto weakThis = get_weak();
+
         Windows::Foundation::Collections::IVectorView<Windows::Storage::IStorageItem> items;
         try
         {
@@ -410,24 +412,35 @@ namespace winrt::TerminalApp::implementation
         }
         CATCH_LOG();
 
-        if (items.Size() == 1)
+        if (!items || items.Size() == 0)
         {
-            std::filesystem::path path(items.GetAt(0).Path().c_str());
+            co_return;
+        }
+
+        const auto strongThis = weakThis.get();
+        if (!strongThis)
+        {
+            co_return;
+        }
+
+        TraceLoggingWrite(
+            g_hTerminalAppProvider,
+            "NewTabByDragDrop",
+            TraceLoggingDescription("Event emitted when the user drag&drops onto the new tab button"),
+            TraceLoggingKeyword(MICROSOFT_KEYWORD_MEASURES),
+            TelemetryPrivacyDataTag(PDT_ProductAndServiceUsage));
+
+        for (const auto& item : items)
+        {
+            std::filesystem::path path(item.Path().c_str());
             if (!std::filesystem::is_directory(path))
             {
                 path = path.parent_path();
             }
 
             NewTerminalArgs args;
-            args.StartingDirectory(winrt::hstring{ path.wstring() });
-            this->_OpenNewTerminalViaDropdown(args);
-
-            TraceLoggingWrite(
-                g_hTerminalAppProvider,
-                "NewTabByDragDrop",
-                TraceLoggingDescription("Event emitted when the user drag&drops onto the new tab button"),
-                TraceLoggingKeyword(MICROSOFT_KEYWORD_MEASURES),
-                TelemetryPrivacyDataTag(PDT_ProductAndServiceUsage));
+            args.StartingDirectory(winrt::hstring{ path.native() });
+            _OpenNewTerminalViaDropdown(args);
         }
     }
 
@@ -531,9 +544,7 @@ namespace winrt::TerminalApp::implementation
     // - Process all the startup actions in the provided list of startup
     //   actions. We'll do this all at once here.
     // Arguments:
-    // - actions: a winrt vector of actions to process. Note that this must NOT
-    //   be an IVector&, because we need the collection to be accessible on the
-    //   other side of the co_await.
+    // - actions: a winrt vector of actions to process.
     // - initial: if true, we're parsing these args during startup, and we
     //   should fire an Initialized event.
     // - cwd: If not empty, we should try switching to this provided directory
@@ -541,15 +552,8 @@ namespace winrt::TerminalApp::implementation
     //   nt -d .` from inside another directory to work as expected.
     // Return Value:
     // - <none>
-    winrt::fire_and_forget TerminalPage::ProcessStartupActions(Windows::Foundation::Collections::IVector<ActionAndArgs> actions,
-                                                               const bool initial,
-                                                               const winrt::hstring cwd)
+    void TerminalPage::ProcessStartupActions(const Windows::Foundation::Collections::IVector<ActionAndArgs>& actions, const bool initial, const winrt::hstring cwd)
     {
-        auto weakThis{ get_weak() };
-
-        // Handle it on a subsequent pass of the UI thread.
-        co_await wil::resume_foreground(Dispatcher(), CoreDispatcherPriority::Normal);
-
         // If the caller provided a CWD, switch to that directory, then switch
         // back once we're done. This looks weird though, because we have to set
         // up the scope_exit _first_. We'll release the scope_exit if we don't
@@ -573,28 +577,19 @@ namespace winrt::TerminalApp::implementation
             LOG_IF_WIN32_BOOL_FALSE(SetCurrentDirectory(cwd.c_str()));
         }
 
-        if (auto page{ weakThis.get() })
+        for (const auto& action : actions)
         {
-            for (const auto& action : actions)
-            {
-                if (auto page{ weakThis.get() })
-                {
-                    _actionDispatch->DoAction(action);
-                }
-                else
-                {
-                    co_return;
-                }
-            }
-
-            // GH#6586: now that we're done processing all startup commands,
-            // focus the active control. This will work as expected for both
-            // commandline invocations and for `wt` action invocations.
-            if (const auto control = _GetActiveControl())
-            {
-                control.Focus(FocusState::Programmatic);
-            }
+            _actionDispatch->DoAction(action);
         }
+
+        // GH#6586: now that we're done processing all startup commands,
+        // focus the active control. This will work as expected for both
+        // commandline invocations and for `wt` action invocations.
+        if (const auto control = _GetActiveControl())
+        {
+            control.Focus(FocusState::Programmatic);
+        }
+
         if (initial)
         {
             _CompleteInitialization();
@@ -1147,16 +1142,6 @@ namespace winrt::TerminalApp::implementation
         }
     }
 
-    winrt::fire_and_forget TerminalPage::_RemoveOnCloseRoutine(Microsoft::UI::Xaml::Controls::TabViewItem tabViewItem, winrt::com_ptr<TerminalPage> page)
-    {
-        co_await wil::resume_foreground(page->_tabView.Dispatcher());
-
-        if (auto tab{ _GetTabByTabViewItem(tabViewItem) })
-        {
-            _RemoveTab(tab);
-        }
-    }
-
     // Method Description:
     // - Creates a new connection based on the profile settings
     // Arguments:
@@ -1187,7 +1172,7 @@ namespace winrt::TerminalApp::implementation
                 connection = TerminalConnection::ConptyConnection{};
             }
 
-            auto valueSet = TerminalConnection::ConptyConnection::CreateSettings(azBridgePath.wstring(),
+            auto valueSet = TerminalConnection::ConptyConnection::CreateSettings(azBridgePath.native(),
                                                                                  L".",
                                                                                  L"Azure",
                                                                                  nullptr,
@@ -1232,7 +1217,7 @@ namespace winrt::TerminalApp::implementation
                 auto cwdString{ wil::GetCurrentDirectoryW<std::wstring>() };
                 std::filesystem::path cwd{ cwdString };
                 cwd /= settings.StartingDirectory().c_str();
-                newWorkingDirectory = winrt::hstring{ cwd.wstring() };
+                newWorkingDirectory = winrt::hstring{ cwd.native() };
             }
 
             auto conhostConn = TerminalConnection::ConptyConnection();
@@ -2115,17 +2100,13 @@ namespace winrt::TerminalApp::implementation
     //   reattach instead of create new content, so this method simply needs to
     //   parse the JSON and pump it into our action handler. Almost the same as
     //   doing something like `wt -w 0 nt`.
-    winrt::fire_and_forget TerminalPage::AttachContent(IVector<Settings::Model::ActionAndArgs> args,
-                                                       uint32_t tabIndex)
+    void TerminalPage::AttachContent(const IVector<Settings::Model::ActionAndArgs>& args, uint32_t tabIndex)
     {
         if (args == nullptr ||
             args.Size() == 0)
         {
-            co_return;
+            return;
         }
-
-        // Switch to the UI thread before selecting a tab or dispatching actions.
-        co_await wil::resume_foreground(Dispatcher(), CoreDispatcherPriority::High);
 
         const auto& firstAction = args.GetAt(0);
         const bool firstIsSplitPane{ firstAction.Action() == ShortcutAction::SplitPane };
@@ -2442,11 +2423,9 @@ namespace winrt::TerminalApp::implementation
     //   terminal control raises its CopyToClipboard event.
     // Arguments:
     // - copiedData: the new string content to place on the clipboard.
-    winrt::fire_and_forget TerminalPage::_CopyToClipboardHandler(const IInspectable /*sender*/,
-                                                                 const CopyToClipboardEventArgs copiedData)
+    void TerminalPage::_CopyToClipboardHandler(const IInspectable /*sender*/,
+                                               const CopyToClipboardEventArgs copiedData)
     {
-        co_await wil::resume_foreground(Dispatcher(), CoreDispatcherPriority::High);
-
         auto dataPack = DataPackage();
         dataPack.RequestedOperation(DataPackageOperation::Copy);
 
@@ -2499,24 +2478,22 @@ namespace winrt::TerminalApp::implementation
     // - Does some of this in a background thread, as to not hang/crash the UI thread.
     // Arguments:
     // - eventArgs: the PasteFromClipboard event sent from the TermControl
-    fire_and_forget TerminalPage::_PasteFromClipboardHandler(const IInspectable /*sender*/,
-                                                             const PasteFromClipboardEventArgs eventArgs)
+    winrt::fire_and_forget TerminalPage::_PasteFromClipboardHandler(const IInspectable /*sender*/, const PasteFromClipboardEventArgs eventArgs)
+    try
     {
-        const auto data = Clipboard::GetContent();
+        const auto weakThis = get_weak();
+        const auto globalSettings = _settings.GlobalSettings();
 
-        // This will switch the execution of the function to a background (not
-        // UI) thread. This is IMPORTANT, because the getting the clipboard data
-        // will crash on the UI thread, because the main thread is a STA.
-        co_await winrt::resume_background();
-
-        try
+        winrt::hstring text;
         {
-            hstring text = L"";
+            const auto data = Clipboard::GetContent();
+
             if (data.Contains(StandardDataFormats::Text()))
             {
                 text = co_await data.GetTextAsync();
             }
-            // Windows Explorer's "Copy address" menu item stores a StorageItem in the clipboard, and no text.
+            // Windows Explorer's "Copy address" menu item (the one when you right-click
+            // the address bar) stores a StorageItem in the clipboard, and no text.
             else if (data.Contains(StandardDataFormats::StorageItems()))
             {
                 auto items = co_await data.GetStorageItemsAsync();
@@ -2526,20 +2503,21 @@ namespace winrt::TerminalApp::implementation
                     text = item.Path();
                 }
             }
+        }
 
-            if (_settings.GlobalSettings().TrimPaste())
-            {
-                text = { Utils::TrimPaste(text) };
-                if (text.empty())
-                {
-                    // Text is all white space, nothing to paste
-                    co_return;
-                }
-            }
+        if (globalSettings.TrimPaste())
+        {
+            text = { Utils::TrimPaste(text) };
+        }
 
+        if (text.empty())
+        {
+            co_return;
+        }
+
+        {
             // If the requesting terminal is in bracketed paste mode, then we don't need to warn about a multi-line paste.
-            auto warnMultiLine = _settings.GlobalSettings().WarnAboutMultiLinePaste() &&
-                                 !eventArgs.BracketedPasteEnabled();
+            auto warnMultiLine = globalSettings.WarnAboutMultiLinePaste() && !eventArgs.BracketedPasteEnabled();
             if (warnMultiLine)
             {
                 const auto isNewLineLambda = [](auto c) { return c == L'\n' || c == L'\r'; };
@@ -2548,15 +2526,20 @@ namespace winrt::TerminalApp::implementation
             }
 
             constexpr const std::size_t minimumSizeForWarning = 1024 * 5; // 5 KiB
-            const auto warnLargeText = text.size() > minimumSizeForWarning &&
-                                       _settings.GlobalSettings().WarnAboutLargePaste();
+            const auto warnLargeText = text.size() > minimumSizeForWarning && globalSettings.WarnAboutLargePaste();
 
             if (warnMultiLine || warnLargeText)
             {
-                co_await wil::resume_foreground(Dispatcher());
+                // Holding onto ourselves strongly across the co_await is probably not the best,
+                // but I think it should be fine. ShowDialog() probably holds onto itself strongly anyways.
+                const auto strongThis = weakThis.get();
+                if (!strongThis)
+                {
+                    co_return;
+                }
 
                 // We have to initialize the dialog here to be able to change the text of the text block within it
-                FindName(L"MultiLinePasteDialog").try_as<WUX::Controls::ContentDialog>();
+                FindName(L"MultiLinePasteDialog");
                 ClipboardText().Text(text);
 
                 // The vertical offset on the scrollbar does not reset automatically, so reset it manually
@@ -2567,7 +2550,7 @@ namespace winrt::TerminalApp::implementation
                 {
                     warningResult = co_await _ShowMultiLinePasteWarningDialog();
                 }
-                else if (warnLargeText)
+                else
                 {
                     warningResult = co_await _ShowLargePasteWarningDialog();
                 }
@@ -2581,11 +2564,11 @@ namespace winrt::TerminalApp::implementation
                     co_return;
                 }
             }
-
-            eventArgs.HandleClipboardData(text);
         }
-        CATCH_LOG();
+
+        eventArgs.HandleClipboardData(text);
     }
+    CATCH_LOG();
 
     void TerminalPage::_OpenHyperlinkHandler(const IInspectable /*sender*/, const Microsoft::Terminal::Control::OpenHyperlinkEventArgs eventArgs)
     {
@@ -2675,12 +2658,11 @@ namespace winrt::TerminalApp::implementation
 
     // Important! Don't take this eventArgs by reference, we need to extend the
     // lifetime of it to the other side of the co_await!
-    winrt::fire_and_forget TerminalPage::_ControlNoticeRaisedHandler(const IInspectable /*sender*/,
-                                                                     const Microsoft::Terminal::Control::NoticeEventArgs eventArgs)
+    void TerminalPage::_ControlNoticeRaisedHandler(const IInspectable /*sender*/, const Microsoft::Terminal::Control::NoticeEventArgs eventArgs)
     {
-        auto weakThis = get_weak();
-        co_await wil::resume_foreground(Dispatcher());
-        if (auto page = weakThis.get())
+        const auto weakThis = get_weak();
+        co_await resume_foreground(Dispatcher());
+        if (const auto strongThis = weakThis.get())
         {
             auto message = eventArgs.Message();
 
@@ -2702,7 +2684,7 @@ namespace winrt::TerminalApp::implementation
                 break;
             }
 
-            page->_ShowControlNoticeDialog(title, message);
+            _ShowControlNoticeDialog(title, message);
         }
     }
 
@@ -2746,8 +2728,12 @@ namespace winrt::TerminalApp::implementation
     // - eventArgs: the arguments specifying how to set the progress indicator
     winrt::fire_and_forget TerminalPage::_SetTaskbarProgressHandler(const IInspectable /*sender*/, const IInspectable /*eventArgs*/)
     {
-        co_await wil::resume_foreground(Dispatcher());
-        _SetTaskbarProgressHandlers(*this, nullptr);
+        const auto weakThis = get_weak();
+        co_await resume_foreground(Dispatcher());
+        if (const auto strongThis = weakThis.get())
+        {
+            _SetTaskbarProgressHandlers(nullptr, nullptr);
+        }
     }
 
     // Method Description:
@@ -2757,8 +2743,12 @@ namespace winrt::TerminalApp::implementation
     // - args: the arguments specifying how to set the display status to ShowWindow for our window handle
     winrt::fire_and_forget TerminalPage::_ShowWindowChangedHandler(const IInspectable /*sender*/, const Microsoft::Terminal::Control::ShowWindowArgs args)
     {
+        const auto weakThis = get_weak();
         co_await resume_foreground(Dispatcher());
-        _ShowWindowChangedHandlers(*this, args);
+        if (const auto strongThis = weakThis.get())
+        {
+            _ShowWindowChangedHandlers(*this, args);
+        }
     }
 
     // Method Description:
@@ -2775,7 +2765,7 @@ namespace winrt::TerminalApp::implementation
     // - Called when the settings button is clicked. ShellExecutes the settings
     //   file, as to open it in the default editor for .json files. Does this in
     //   a background thread, as to not hang/crash the UI thread.
-    fire_and_forget TerminalPage::_LaunchSettings(const SettingsTarget target)
+    void TerminalPage::_LaunchSettings(const SettingsTarget target)
     {
         if (target == SettingsTarget::SettingsUI)
         {
@@ -2783,12 +2773,6 @@ namespace winrt::TerminalApp::implementation
         }
         else
         {
-            // This will switch the execution of the function to a background (not
-            // UI) thread. This is IMPORTANT, because the Windows.Storage API's
-            // (used for retrieving the path to the file) will crash on the UI
-            // thread, because the main thread is a STA.
-            co_await winrt::resume_background();
-
             auto openFile = [](const auto& filePath) {
                 HINSTANCE res = ShellExecute(nullptr, nullptr, filePath.c_str(), nullptr, nullptr, SW_SHOW);
                 if (static_cast<int>(reinterpret_cast<uintptr_t>(res)) <= 32)
@@ -3751,11 +3735,13 @@ namespace winrt::TerminalApp::implementation
             });
 
             // When the tab is closed, remove it from our list of tabs.
-            newTabImpl->Closed([tabViewItem, weakThis{ get_weak() }](auto&& /*s*/, auto&& /*e*/) {
-                if (auto page{ weakThis.get() })
+            newTabImpl->Closed([weakTab, weakThis{ get_weak() }](auto&& /*s*/, auto&& /*e*/) {
+                const auto page = weakThis.get();
+                const auto tab = weakTab.get();
+
+                if (page && tab)
                 {
-                    page->_settingsTab = nullptr;
-                    page->_RemoveOnCloseRoutine(tabViewItem, page);
+                    page->_RemoveTab(*tab);
                 }
             });
 
@@ -3993,10 +3979,9 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     // Return Value:
     // - <none>
-    winrt::fire_and_forget TerminalPage::IdentifyWindow()
+    void TerminalPage::IdentifyWindow()
     {
         auto weakThis{ get_weak() };
-        co_await wil::resume_foreground(Dispatcher());
         if (auto page{ weakThis.get() })
         {
             // If we haven't ever loaded the TeachingTip, then do so now and
@@ -4029,10 +4014,9 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     // Return Value:
     // - <none>
-    winrt::fire_and_forget TerminalPage::RenameFailed()
+    void TerminalPage::RenameFailed()
     {
         auto weakThis{ get_weak() };
-        co_await wil::resume_foreground(Dispatcher());
         if (auto page{ weakThis.get() })
         {
             // If we haven't ever loaded the TeachingTip, then do so now and
@@ -4249,14 +4233,21 @@ namespace winrt::TerminalApp::implementation
     // - sender: the ICoreState instance containing the connection state
     // Return Value:
     // - <none>
-    winrt::fire_and_forget TerminalPage::_ConnectionStateChangedHandler(const IInspectable& sender, const IInspectable& /*args*/) const
+    winrt::fire_and_forget TerminalPage::_ConnectionStateChangedHandler(const IInspectable& sender, const IInspectable& /*args*/)
     {
         if (const auto coreState{ sender.try_as<winrt::Microsoft::Terminal::Control::ICoreState>() })
         {
             const auto newConnectionState = coreState.ConnectionState();
             if (newConnectionState == ConnectionState::Failed && !_IsMessageDismissed(InfoBarMessage::CloseOnExitInfo))
             {
+                const auto weakThis = get_weak();
                 co_await wil::resume_foreground(Dispatcher());
+                const auto strongThis = weakThis.get();
+                if (!strongThis)
+                {
+                    co_return;
+                }
+
                 if (const auto infoBar = FindName(L"CloseOnExitInfoBar").try_as<MUX::Controls::InfoBar>())
                 {
                     infoBar.IsOpen(true);
@@ -4603,17 +4594,15 @@ namespace winrt::TerminalApp::implementation
 
     // Handler for our WindowProperties's PropertyChanged event. We'll use this
     // to pop the "Identify Window" toast when the user renames our window.
-    winrt::fire_and_forget TerminalPage::_windowPropertyChanged(const IInspectable& /*sender*/,
-                                                                const WUX::Data::PropertyChangedEventArgs& args)
+    void TerminalPage::_windowPropertyChanged(const IInspectable& /*sender*/, const WUX::Data::PropertyChangedEventArgs& args)
     {
         if (args.PropertyName() != L"WindowName")
         {
-            co_return;
+            return;
         }
         auto weakThis{ get_weak() };
         // On the foreground thread, raise property changed notifications, and
         // display the success toast.
-        co_await wil::resume_foreground(Dispatcher());
         if (auto page{ weakThis.get() })
         {
             // DON'T display the confirmation if this is the name we were
@@ -4700,8 +4689,8 @@ namespace winrt::TerminalApp::implementation
     // - Called on the TARGET of a tab drag/drop. We'll unpack the DataPackage
     //   to find who the tab came from. We'll then ask the Monarch to ask the
     //   sender to move that tab to us.
-    winrt::fire_and_forget TerminalPage::_onTabStripDrop(winrt::Windows::Foundation::IInspectable /*sender*/,
-                                                         winrt::Windows::UI::Xaml::DragEventArgs e)
+    void TerminalPage::_onTabStripDrop(winrt::Windows::Foundation::IInspectable /*sender*/,
+                                       winrt::Windows::UI::Xaml::DragEventArgs e)
     {
         // Get the PID and make sure it is the same as ours.
         if (const auto& pidObj{ e.DataView().Properties().TryLookup(L"pid") })
@@ -4710,20 +4699,20 @@ namespace winrt::TerminalApp::implementation
             if (pid != GetCurrentProcessId())
             {
                 // The PID doesn't match ours. We can't handle this drop.
-                co_return;
+                return;
             }
         }
         else
         {
             // No PID? We can't handle this drop. Bail.
-            co_return;
+            return;
         }
 
         const auto& windowIdObj{ e.DataView().Properties().TryLookup(L"windowId") };
         if (windowIdObj == nullptr)
         {
             // No windowId? Bail.
-            co_return;
+            return;
         }
         const uint64_t src{ winrt::unbox_value<uint64_t>(windowIdObj) };
 
@@ -4733,7 +4722,6 @@ namespace winrt::TerminalApp::implementation
 
         // We need to be on OUR UI thread to figure out where we dropped
         auto weakThis{ get_weak() };
-        co_await wil::resume_foreground(Dispatcher());
         if (const auto& page{ weakThis.get() })
         {
             // `this` is safe to use
@@ -4774,21 +4762,20 @@ namespace winrt::TerminalApp::implementation
     //   the destination window.
     // - Fortunately, sending the tab is basically just a MoveTab action, so we
     //   can largely reuse that.
-    winrt::fire_and_forget TerminalPage::SendContentToOther(winrt::TerminalApp::RequestReceiveContentArgs args)
+    void TerminalPage::SendContentToOther(winrt::TerminalApp::RequestReceiveContentArgs args)
     {
         // validate that we're the source window of the tab in this request
         if (args.SourceWindow() != _WindowProperties.WindowId())
         {
-            co_return;
+            return;
         }
         if (!_stashed.draggedTab)
         {
-            co_return;
+            return;
         }
 
         // must do the work of adding/removing tabs on the UI thread.
         auto weakThis{ get_weak() };
-        co_await wil::resume_foreground(Dispatcher(), CoreDispatcherPriority::Normal);
         if (const auto& page{ weakThis.get() })
         {
             // `this` is safe to use in here.
@@ -4799,8 +4786,7 @@ namespace winrt::TerminalApp::implementation
         }
     }
 
-    winrt::fire_and_forget TerminalPage::_onTabDroppedOutside(winrt::IInspectable sender,
-                                                              winrt::MUX::Controls::TabViewTabDroppedOutsideEventArgs e)
+    void TerminalPage::_onTabDroppedOutside(winrt::IInspectable sender, winrt::MUX::Controls::TabViewTabDroppedOutsideEventArgs e)
     {
         // Get the current pointer point from the CoreWindow
         const auto& pointerPoint{ CoreWindow::GetForCurrentThread().PointerPosition() };
@@ -4812,12 +4798,11 @@ namespace winrt::TerminalApp::implementation
 
         if (!_stashed.draggedTab)
         {
-            co_return;
+            return;
         }
 
         // must do the work of adding/removing tabs on the UI thread.
         auto weakThis{ get_weak() };
-        co_await wil::resume_foreground(Dispatcher(), CoreDispatcherPriority::Normal);
         if (const auto& page{ weakThis.get() })
         {
             // `this` is safe to use in here.

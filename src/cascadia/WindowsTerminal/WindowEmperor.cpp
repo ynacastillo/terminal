@@ -140,10 +140,16 @@ void WindowEmperor::_createNewWindowThread(const Remoting::WindowRequestedArgs& 
     std::thread t([weakThis, window]() {
         try
         {
-            auto cleanup = wil::scope_exit([&]() {
+            const auto decrementWindowCount = wil::scope_exit([&]() {
                 if (auto self{ weakThis.lock() })
                 {
-                    self->_windowExitedHandler(window->Peasant().GetID());
+                    self->_decrementWindowCount();
+                }
+            });
+            auto removeWindow = wil::scope_exit([&]() {
+                if (auto self{ weakThis.lock() })
+                {
+                    self->_removeWindow(window->PeasantID());
                 }
             });
 
@@ -160,7 +166,7 @@ void WindowEmperor::_createNewWindowThread(const Remoting::WindowRequestedArgs& 
             // remove the window from our list of windows, before we release the
             // AppHost (and subsequently, the host's Logic() member that we use
             // elsewhere).
-            cleanup.reset();
+            removeWindow.reset();
 
             // Now that we no longer care about this thread's window, let it
             // release it's app host and flush the rest of the XAML queue.
@@ -204,17 +210,20 @@ void WindowEmperor::_windowStartedHandlerPostXAML(const std::shared_ptr<WindowTh
         lockedWindows->push_back(sender);
     }
 }
-void WindowEmperor::_windowExitedHandler(uint64_t senderID)
+
+void WindowEmperor::_removeWindow(uint64_t senderID)
 {
     auto lockedWindows{ _windows.lock() };
 
     // find the window in _windows who's peasant's Id matches the peasant's Id
     // and remove it
-    std::erase_if(*lockedWindows,
-                  [&](const auto& w) {
-                      return w->Peasant().GetID() == senderID;
-                  });
+    std::erase_if(*lockedWindows, [&](const auto& w) {
+        return w->PeasantID() == senderID;
+    });
+}
 
+void WindowEmperor::_decrementWindowCount()
+{
     // When we run out of windows, exit our process if and only if:
     // * We're not allowed to run headless OR
     // * we've explicitly been told to "quit", which should fully exit the Terminal.
@@ -226,6 +235,7 @@ void WindowEmperor::_windowExitedHandler(uint64_t senderID)
         _close();
     }
 }
+
 // Method Description:
 // - Set up all sorts of handlers now that we've determined that we're a process
 //   that will end up hosting the windows. These include:
@@ -274,7 +284,9 @@ void WindowEmperor::_becomeMonarch()
 
     // The monarch should be monitoring if it should save the window layout.
     // We want at least some delay to prevent the first save from overwriting
-    _getWindowLayoutThrottler.emplace(std::move(std::chrono::seconds(10)), std::move([this]() { _saveWindowLayoutsRepeat(); }));
+    _getWindowLayoutThrottler.emplace(std::move(std::chrono::seconds(10)), [weakThis = weak_from_this()]() {
+        _saveWindowLayoutsRepeat(weakThis);
+    });
     _getWindowLayoutThrottler.value()();
 
     // BODGY
@@ -314,69 +326,44 @@ void WindowEmperor::_numberOfWindowsChanged(const winrt::Windows::Foundation::II
 // giving the monarch an async function that the manager should wait on before
 // completing the quit.
 void WindowEmperor::_quitAllRequested(const winrt::Windows::Foundation::IInspectable&,
-                                      const winrt::Microsoft::Terminal::Remoting::QuitAllRequestedArgs& args)
+                                      const winrt::Windows::Foundation::IInspectable&)
 {
     _quitting = true;
 
     // Make sure that the current timer is destroyed so that it doesn't attempt
     // to run while we are in the middle of quitting.
-    if (_getWindowLayoutThrottler.has_value())
+    if (_getWindowLayoutThrottler)
     {
         _getWindowLayoutThrottler.reset();
     }
 
     // Tell the monarch to wait for the window layouts to save before
     // everyone quits.
-    args.BeforeQuitAllAction(_saveWindowLayouts());
+    _saveWindowLayouts();
 }
 
 #pragma region LayoutPersistence
 
-winrt::Windows::Foundation::IAsyncAction WindowEmperor::_saveWindowLayouts()
+void WindowEmperor::_saveWindowLayouts()
 {
-    // Make sure we run on a background thread to not block anything.
-    co_await winrt::resume_background();
-
-    if (_app.Logic().ShouldUsePersistedLayout())
+    const auto logic = _app.Logic();
+    if (logic.ShouldUsePersistedLayout())
     {
-        try
-        {
-            TraceLoggingWrite(g_hWindowsTerminalProvider,
-                              "AppHost_SaveWindowLayouts_Collect",
-                              TraceLoggingDescription("Logged when collecting window state"),
-                              TraceLoggingLevel(WINEVENT_LEVEL_VERBOSE),
-                              TraceLoggingKeyword(TIL_KEYWORD_TRACE));
-
-            const auto layoutJsons = _manager.GetAllWindowLayouts();
-
-            TraceLoggingWrite(g_hWindowsTerminalProvider,
-                              "AppHost_SaveWindowLayouts_Save",
-                              TraceLoggingDescription("Logged when writing window state"),
-                              TraceLoggingLevel(WINEVENT_LEVEL_VERBOSE),
-                              TraceLoggingKeyword(TIL_KEYWORD_TRACE));
-
-            _app.Logic().SaveWindowLayoutJsons(layoutJsons);
-        }
-        catch (...)
-        {
-            LOG_CAUGHT_EXCEPTION();
-            TraceLoggingWrite(g_hWindowsTerminalProvider,
-                              "AppHost_SaveWindowLayouts_Failed",
-                              TraceLoggingDescription("An error occurred when collecting or writing window state"),
-                              TraceLoggingLevel(WINEVENT_LEVEL_VERBOSE),
-                              TraceLoggingKeyword(TIL_KEYWORD_TRACE));
-        }
+        logic.SaveWindowLayoutJsons(_manager.GetAllWindowLayouts());
     }
-
-    co_return;
 }
 
-winrt::fire_and_forget WindowEmperor::_saveWindowLayoutsRepeat()
+winrt::fire_and_forget WindowEmperor::_saveWindowLayoutsRepeat(std::weak_ptr<WindowEmperor> weakThis)
 {
-    // Make sure we run on a background thread to not block anything.
-    co_await winrt::resume_background();
+    {
+        const auto self = weakThis.lock();
+        if (!self)
+        {
+            co_return;
+        }
 
-    co_await _saveWindowLayouts();
+        self->_saveWindowLayouts();
+    }
 
     // Don't need to save too frequently.
     co_await winrt::resume_after(30s);
@@ -384,15 +371,17 @@ winrt::fire_and_forget WindowEmperor::_saveWindowLayoutsRepeat()
     // As long as we are supposed to keep saving, request another save.
     // This will be delayed by the throttler so that at most one save happens
     // per 10 seconds, if a save is requested by another source simultaneously.
-    if (_getWindowLayoutThrottler.has_value())
     {
-        TraceLoggingWrite(g_hWindowsTerminalProvider,
-                          "AppHost_requestGetLayout",
-                          TraceLoggingDescription("Logged when triggering a throttled write of the window state"),
-                          TraceLoggingLevel(WINEVENT_LEVEL_VERBOSE),
-                          TraceLoggingKeyword(TIL_KEYWORD_TRACE));
+        const auto self = weakThis.lock();
+        if (!self)
+        {
+            co_return;
+        }
 
-        _getWindowLayoutThrottler.value()();
+        if (self->_getWindowLayoutThrottler)
+        {
+            self->_getWindowLayoutThrottler.value()();
+        }
     }
 }
 #pragma endregion
@@ -525,9 +514,6 @@ winrt::fire_and_forget WindowEmperor::_close()
 // - <none>
 static winrt::fire_and_forget _createNewTerminalWindow(Settings::Model::GlobalSummonArgs args)
 {
-    // Hop to the BG thread
-    co_await winrt::resume_background();
-
     // This will get us the correct exe for dev/preview/release. If you
     // don't stick this in a local, it'll get mangled by ShellExecute. I
     // have no idea why.
@@ -648,7 +634,7 @@ void WindowEmperor::_unregisterHotKey(const int index) noexcept
 winrt::fire_and_forget WindowEmperor::_setupGlobalHotkeys()
 {
     // The hotkey MUST be registered on the main thread. It will fail otherwise!
-    co_await wil::resume_foreground(_dispatcher);
+    assert(_dispatcher.HasThreadAccess());
 
     if (!_window)
     {
@@ -785,15 +771,11 @@ void WindowEmperor::_hideNotificationIconRequested()
 // A callback to the window's logic to let us know when the window's
 // quake mode state changes. We'll use this to check if we need to add
 // or remove the notification icon.
-winrt::fire_and_forget WindowEmperor::_windowIsQuakeWindowChanged(winrt::Windows::Foundation::IInspectable sender,
-                                                                  winrt::Windows::Foundation::IInspectable args)
+void WindowEmperor::_windowIsQuakeWindowChanged(winrt::Windows::Foundation::IInspectable sender, winrt::Windows::Foundation::IInspectable args)
 {
-    co_await wil::resume_foreground(this->_dispatcher);
     _checkWindowsForNotificationIcon();
 }
-winrt::fire_and_forget WindowEmperor::_windowRequestUpdateSettings()
+void WindowEmperor::_windowRequestUpdateSettings()
 {
-    // We MUST be on the main thread to update the settings. We will crash when trying to enumerate fragment extensions otherwise.
-    co_await wil::resume_foreground(this->_dispatcher);
     _app.Logic().ReloadSettings();
 }

@@ -73,12 +73,6 @@ AppHost::AppHost(const winrt::TerminalApp::AppLogic& logic,
     // If you don't, then it's possible for them to get triggered as the app is
     // tearing down, after we've nulled out the window, during the dtor. That
     // can cause unexpected AV's everywhere.
-    //
-    // _window callbacks don't need to be treated this way, because:
-    // * IslandWindow isn't a WinRT type (so it doesn't have neat revokers like this)
-    // * This particular bug scenario applies when we've already freed the window.
-    //
-    // (Most of these events are actually set up in AppHost::Initialize)
     _window->MouseScrolled({ this, &AppHost::_WindowMouseWheeled });
     _window->WindowActivated({ this, &AppHost::_WindowActivated });
     _window->WindowMoved({ this, &AppHost::_WindowMoved });
@@ -875,8 +869,6 @@ winrt::fire_and_forget AppHost::_peasantNotifyActivateWindow()
     const auto peasant = _peasant;
     const auto hwnd = _window->GetHandle();
 
-    co_await winrt::resume_background();
-
     GUID currentDesktopGuid{};
     if (FAILED_LOG(desktopManager->GetWindowDesktopId(hwnd, &currentDesktopGuid)))
     {
@@ -960,20 +952,14 @@ void AppHost::_HandleSummon(const winrt::Windows::Foundation::IInspectable& /*se
 }
 
 // Method Description:
-// - Called when this window wants _all_ windows to display their
-//   identification. We'll hop to the BG thread, and raise an event (eventually
-//   handled by the monarch) to bubble this request to all the Terminal windows.
+// - Called when this window wants _all_ windows to display their identification.
 // Arguments:
 // - <unused>
 // Return Value:
 // - <none>
-winrt::fire_and_forget AppHost::_IdentifyWindowsRequested(const winrt::Windows::Foundation::IInspectable /*sender*/,
-                                                          const winrt::Windows::Foundation::IInspectable /*args*/)
+void AppHost::_IdentifyWindowsRequested(const winrt::Windows::Foundation::IInspectable /*sender*/,
+                                        const winrt::Windows::Foundation::IInspectable /*args*/)
 {
-    // We'll be raising an event that may result in a RPC call to the monarch -
-    // make sure we're on the background thread, or this will silently fail
-    co_await winrt::resume_background();
-
     if (_peasant)
     {
         _peasant.RequestIdentifyWindows();
@@ -993,33 +979,20 @@ void AppHost::_DisplayWindowId(const winrt::Windows::Foundation::IInspectable& /
     _windowLogic.IdentifyWindow();
 }
 
-winrt::fire_and_forget AppHost::_RenameWindowRequested(const winrt::Windows::Foundation::IInspectable /*sender*/,
-                                                       const winrt::TerminalApp::RenameWindowRequestedArgs args)
+void AppHost::_RenameWindowRequested(const winrt::Windows::Foundation::IInspectable /*sender*/,
+                                     const winrt::TerminalApp::RenameWindowRequestedArgs args)
 {
-    // Capture calling context.
-    winrt::apartment_context ui_thread;
+    Remoting::RenameRequestArgs requestArgs{ args.ProposedName() };
 
-    // Switch to the BG thread - anything x-proc must happen on a BG thread
-    co_await winrt::resume_background();
+    _peasant.RequestRename(requestArgs);
 
-    if (_peasant)
+    if (requestArgs.Succeeded())
     {
-        Remoting::RenameRequestArgs requestArgs{ args.ProposedName() };
-
-        _peasant.RequestRename(requestArgs);
-
-        // Switch back to the UI thread. Setting the WindowName needs to happen
-        // on the UI thread, because it'll raise a PropertyChanged event
-        co_await ui_thread;
-
-        if (requestArgs.Succeeded())
-        {
-            _windowLogic.WindowName(args.ProposedName());
-        }
-        else
-        {
-            _windowLogic.RenameFailed();
-        }
+        _windowLogic.WindowName(args.ProposedName());
+    }
+    else
+    {
+        _windowLogic.RenameFailed();
     }
 }
 
@@ -1090,6 +1063,8 @@ void AppHost::_IsQuakeWindowChanged(const winrt::Windows::Foundation::IInspectab
 winrt::fire_and_forget AppHost::_QuitRequested(const winrt::Windows::Foundation::IInspectable&,
                                                const winrt::Windows::Foundation::IInspectable&)
 {
+    assert(!_windowLogic.GetRoot().Dispatcher().HasThreadAccess());
+
     // Need to be on the main thread to close out all of the tabs.
     co_await wil::resume_foreground(_windowLogic.GetRoot().Dispatcher());
 

@@ -82,8 +82,9 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         _actualFont{ DEFAULT_FONT_FACE, 0, DEFAULT_FONT_WEIGHT, { 0, DEFAULT_FONT_SIZE }, CP_UTF8, false }
     {
         _settings = winrt::make_self<implementation::ControlSettings>(settings, unfocusedAppearance);
-
         _terminal = std::make_shared<::Microsoft::Terminal::Core::Terminal>();
+
+        _setupDispatcherAndCallbacks();
 
         Connection(connection);
 
@@ -137,17 +138,10 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
             _renderer->SetBackgroundColorChangedCallback([this]() { _rendererBackgroundColorChanged(); });
             _renderer->SetFrameColorChangedCallback([this]() { _rendererTabColorChanged(); });
-
-            _renderer->SetRendererEnteredErrorStateCallback([weakThis = get_weak()]() {
-                if (auto strongThis{ weakThis.get() })
-                {
-                    strongThis->_RendererEnteredErrorStateHandlers(*strongThis, nullptr);
-                }
-            });
+            _renderer->SetRendererEnteredErrorStateCallback([this]() { _RendererEnteredErrorStateHandlers(nullptr, nullptr); });
 
             THROW_IF_FAILED(localPointerToThread->Initialize(_renderer.get()));
         }
-        _setupDispatcherAndCallbacks();
 
         UpdateSettings(settings, unfocusedAppearance);
     }
@@ -231,6 +225,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         // Clear out any throttled funcs that we had wired up to run on this UI
         // thread. These will be recreated in _setupDispatcherAndCallbacks, when
         // we're re-attached to a new control (on a possibly new UI thread).
+        const auto guard = _throttledFuncLock.lock_exclusive();
         _tsfTryRedrawCanvas.reset();
         _updatePatternLocations.reset();
         _updateScrollBar.reset();
@@ -656,6 +651,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         //      itself - it was initiated by the mouse wheel, or the scrollbar.
         _terminal->UserScrollViewport(viewTop);
 
+        const auto guard = _throttledFuncLock.lock_shared();
         if (_updatePatternLocations)
         {
             (*_updatePatternLocations)();
@@ -1438,6 +1434,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         {
             return;
         }
+
         // Clear the regex pattern tree so the renderer does not try to render them while scrolling
         // We're **NOT** taking the lock here unlike _scrollbarChangeHandler because
         // we are already under lock (since this usually happens as a result of writing).
@@ -1448,20 +1445,18 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         auto update{ winrt::make<ScrollPositionChangedArgs>(viewTop,
                                                             viewHeight,
                                                             bufferSize) };
-        if (!_inUnitTests && _updateScrollBar)
-        {
-            _updateScrollBar->Run(update);
-        }
-        else
+
+        if (_inUnitTests) [[unlikely]]
         {
             _ScrollPositionChangedHandlers(*this, update);
         }
-
-        // Additionally, start the throttled update of where our links are.
-
-        if (_updatePatternLocations)
+        else
         {
-            (*_updatePatternLocations)();
+            const auto guard = _throttledFuncLock.lock_shared();
+            if (_updateScrollBar)
+            {
+                _updateScrollBar->Run(update);
+            }
         }
     }
 
@@ -1469,6 +1464,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
     {
         // When the buffer's cursor moves, start the throttled func to
         // eventually dispatch a CursorPositionChanged event.
+        const auto guard = _throttledFuncLock.lock_shared();
         if (_tsfTryRedrawCanvas)
         {
             _tsfTryRedrawCanvas->Run();
@@ -1482,11 +1478,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
     void ControlCore::_terminalShowWindowChanged(bool showOrHide)
     {
-        if (_initializedTerminal)
-        {
-            auto showWindow = winrt::make_self<implementation::ShowWindowArgs>(showOrHide);
-            _ShowWindowChangedHandlers(*this, *showWindow);
-        }
+        auto showWindow = winrt::make_self<implementation::ShowWindowArgs>(showOrHide);
+        _ShowWindowChangedHandlers(*this, *showWindow);
     }
 
     // Method Description:
@@ -1805,6 +1798,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
             _terminal->Write(hstr);
 
             // Start the throttled update of where our hyperlinks are.
+            const auto guard = _throttledFuncLock.lock_shared();
             if (_updatePatternLocations)
             {
                 (*_updatePatternLocations)();

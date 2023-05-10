@@ -37,7 +37,6 @@ namespace winrt::TerminalApp::implementation
         ASSERT_UI_THREAD();
 
         Content(nullptr);
-        _ClosedHandlers(nullptr, nullptr);
     }
 
     // Method Description:
@@ -514,6 +513,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_ClearTabBackgroundColor()
     {
+        ASSERT_UI_THREAD();
+
         static const winrt::hstring keys[] = {
             L"TabViewItemHeaderBackground",
             L"TabViewItemHeaderBackgroundSelected",
@@ -573,6 +574,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_RefreshVisualState()
     {
+        ASSERT_UI_THREAD();
+
         const auto& item{ TabViewItem() };
 
         const auto& reqTheme = TabViewItem().RequestedTheme();

@@ -312,6 +312,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
         uint64_t _owningHwnd{ 0 };
 
+        wil::srwlock _throttledFuncLock;
         winrt::Windows::System::DispatcherQueue _dispatcher{ nullptr };
         std::shared_ptr<ThrottledFuncTrailing<>> _tsfTryRedrawCanvas;
         std::unique_ptr<til::throttled_func_trailing<>> _updatePatternLocations;
