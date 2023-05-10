@@ -117,6 +117,8 @@ namespace winrt::TerminalApp::implementation
     // - sender, e: not used
     void TerminalTab::_BellIndicatorTimerTick(const Windows::Foundation::IInspectable& /*sender*/, const Windows::Foundation::IInspectable& /*e*/)
     {
+        ASSERT_UI_THREAD();
+
         ShowBellIndicator(false);
         // Just do a sanity check that the timer still exists before we stop it
         if (_bellIndicatorTimer.has_value())
@@ -149,6 +151,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalTab::_UpdateHeaderControlMaxWidth()
     {
+        ASSERT_UI_THREAD();
+
         try
         {
             // Make sure to try/catch this, because the LocalTests won't be
@@ -363,6 +367,8 @@ namespace winrt::TerminalApp::implementation
     // - the title string of the last focused terminal control in our tree.
     winrt::hstring TerminalTab::_GetActiveTitle() const
     {
+        ASSERT_UI_THREAD();
+
         if (!_runtimeTabText.empty())
         {
             return _runtimeTabText;
@@ -879,6 +885,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalTab::_DetachEventHandlersFromControl(const uint32_t paneId, const TermControl& control)
     {
+        ASSERT_UI_THREAD();
+
         auto it = _controlEvents.find(paneId);
         if (it != _controlEvents.end())
         {
@@ -907,6 +915,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalTab::_AttachEventHandlersToControl(const uint32_t paneId, const TermControl& control)
     {
+        ASSERT_UI_THREAD();
+
         auto weakThis{ get_weak() };
         auto dispatcher = TabViewItem().Dispatcher();
         ControlEventTokens events{};
@@ -1005,6 +1015,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalTab::_UpdateProgressState()
     {
+        ASSERT_UI_THREAD();
+
         const auto state{ GetCombinedTaskbarState() };
 
         const auto taskbarState = state.State();
@@ -1050,6 +1062,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalTab::_UpdateActivePane(std::shared_ptr<Pane> pane)
     {
+        ASSERT_UI_THREAD();
+
         // Clear the active state of the entire tree, and mark only the pane as active.
         _rootPane->ClearActive();
         _activePane = pane;
@@ -1096,6 +1110,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalTab::_AttachEventHandlersToPane(std::shared_ptr<Pane> pane)
     {
+        ASSERT_UI_THREAD();
+
         auto weakThis{ get_weak() };
         std::weak_ptr<Pane> weakPane{ pane };
 
@@ -1246,6 +1262,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalTab::_CreateContextMenu()
     {
+        ASSERT_UI_THREAD();
+
         auto weakThis{ get_weak() };
 
         // "Color..."
@@ -1499,6 +1517,8 @@ namespace winrt::TerminalApp::implementation
 
     winrt::Windows::UI::Xaml::Media::Brush TerminalTab::_BackgroundBrush()
     {
+        ASSERT_UI_THREAD();
+
         Media::Brush terminalBrush{ nullptr };
         if (const auto& c{ GetActiveTerminalControl() })
         {
@@ -1669,6 +1689,8 @@ namespace winrt::TerminalApp::implementation
     //   the same read-only status.
     void TerminalTab::SetPaneReadOnly(const bool readOnlyState)
     {
+        ASSERT_UI_THREAD();
+
         auto hasReadOnly = false;
         auto allReadOnly = true;
         _activePane->WalkTree([&](const auto& p) {
@@ -1701,6 +1723,8 @@ namespace winrt::TerminalApp::implementation
     // If after the calculation the tab is read-only we hide the close button on the tab view item
     void TerminalTab::_RecalculateAndApplyReadOnly()
     {
+        ASSERT_UI_THREAD();
+
         const auto control = GetActiveTerminalControl();
         if (control)
         {
@@ -1728,6 +1752,8 @@ namespace winrt::TerminalApp::implementation
     // - The value to populate in the title run of the tool tip
     winrt::hstring TerminalTab::_CreateToolTipTitle()
     {
+        ASSERT_UI_THREAD();
+
         if (const auto& control{ GetActiveTerminalControl() })
         {
             const auto profileName{ control.Settings().ProfileName() };

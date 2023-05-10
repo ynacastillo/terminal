@@ -66,6 +66,8 @@ namespace winrt::TerminalApp::implementation
     HRESULT TerminalPage::_OpenNewTab(const NewTerminalArgs& newTerminalArgs, winrt::Microsoft::Terminal::TerminalConnection::ITerminalConnection existingConnection)
     try
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto profile{ _settings.GetProfileForArgs(newTerminalArgs) };
         // GH#11114: GetProfileForArgs can return null if the index is higher
         // than the number of available profiles.
@@ -98,6 +100,8 @@ namespace winrt::TerminalApp::implementation
     // - insertPosition: Optional parameter to indicate the position of tab.
     void TerminalPage::_InitializeTab(winrt::com_ptr<TerminalTab> newTabImpl, uint32_t insertPosition)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         newTabImpl->Initialize();
 
         // If insert position is not passed, calculate it
@@ -268,6 +272,8 @@ namespace winrt::TerminalApp::implementation
     // - insertPosition: Optional parameter to indicate the position of tab.
     void TerminalPage::_CreateNewTabFromPane(std::shared_ptr<Pane> pane, uint32_t insertPosition)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (pane)
         {
             auto newTabImpl = winrt::make_self<TerminalTab>(pane);
@@ -282,6 +288,8 @@ namespace winrt::TerminalApp::implementation
     // - tab: the Tab to update the title for.
     void TerminalPage::_UpdateTabIcon(TerminalTab& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto profile = tab.GetFocusedProfile())
         {
             tab.UpdateIcon(profile.Icon());
@@ -292,6 +300,8 @@ namespace winrt::TerminalApp::implementation
     // - Handle changes to the tab width set by the user
     void TerminalPage::_UpdateTabWidthMode()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _tabView.TabWidthMode(_settings.GlobalSettings().TabWidthMode());
     }
 
@@ -299,6 +309,8 @@ namespace winrt::TerminalApp::implementation
     // - Handle changes in tab layout.
     void TerminalPage::_UpdateTabView()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Never show the tab row when we're fullscreen. Otherwise:
         // Show tabs when there's more than 1, or the user has chosen to always
         // show the tab bar.
@@ -324,6 +336,8 @@ namespace winrt::TerminalApp::implementation
     // - Duplicates the current focused tab
     void TerminalPage::_DuplicateFocusedTab()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             _DuplicateTab(*terminalTab);
@@ -336,6 +350,8 @@ namespace winrt::TerminalApp::implementation
     // - tab: tab to duplicate
     void TerminalPage::_DuplicateTab(const TerminalTab& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         try
         {
             // TODO: GH#5047 - We're duplicating the whole profile, which might
@@ -364,6 +380,8 @@ namespace winrt::TerminalApp::implementation
     // - tab: tab to split
     void TerminalPage::_SplitTab(TerminalTab& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         try
         {
             _SetFocusedTab(tab);
@@ -378,6 +396,8 @@ namespace winrt::TerminalApp::implementation
     // - tab: tab to export
     winrt::fire_and_forget TerminalPage::_ExportTab(const TerminalTab& tab, winrt::hstring filepath)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // This will be used to set up the file picker "filter", to select .txt
         // files by default.
         static constexpr COMDLG_FILTERSPEC supportedFileTypes[] = {
@@ -445,6 +465,8 @@ namespace winrt::TerminalApp::implementation
     // - args: the list of actions to take to remake the pane/tab
     void TerminalPage::_AddPreviouslyClosedPaneOrTab(std::vector<ActionAndArgs>&& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Just make sure we don't get infinitely large, but still
         // maintain a large replay buffer.
         if (const auto size = _previouslyClosedPanesAndTabs.size(); size > 150)
@@ -464,6 +486,7 @@ namespace winrt::TerminalApp::implementation
     // - tab: the tab to remove
     winrt::Windows::Foundation::IAsyncAction TerminalPage::_HandleCloseTabRequested(winrt::TerminalApp::TabBase tab)
     {
+        assert(Dispatcher().HasThreadAccess());
         const auto strongThis = get_strong();
 
         if (tab.ReadOnly())
@@ -490,6 +513,8 @@ namespace winrt::TerminalApp::implementation
     // - tab: the tab to remove
     void TerminalPage::_RemoveTab(const winrt::TerminalApp::TabBase& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         uint32_t tabIndex{};
         if (!_tabs.IndexOf(tab, tabIndex))
         {
@@ -593,6 +618,8 @@ namespace winrt::TerminalApp::implementation
     // - Sets focus to the tab to the right or left the currently selected tab.
     void TerminalPage::_SelectNextTab(const bool bMoveRight, const Windows::Foundation::IReference<Microsoft::Terminal::Settings::Model::TabSwitcherMode>& customTabSwitcherMode)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto index{ _GetFocusedTabIndex().value_or(0) };
         const auto tabSwitchMode = customTabSwitcherMode ? customTabSwitcherMode.Value() : _settings.GlobalSettings().TabSwitcherMode();
         if (tabSwitchMode == TabSwitcherMode::Disabled)
@@ -630,6 +657,8 @@ namespace winrt::TerminalApp::implementation
     // true iff we were able to select that tab index, false otherwise
     bool TerminalPage::_SelectTab(uint32_t tabIndex)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // GH#9369 - if the argument is out of range, then clamp to the number
         // of available tabs. Previously, we'd just silently do nothing if the
         // value was greater than the number of tabs.
@@ -662,6 +691,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_OnSwitchToTabRequested(const IInspectable& /*sender*/, const winrt::TerminalApp::TabBase& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         uint32_t index{};
         if (_tabs.IndexOf(tab, index))
         {
@@ -676,6 +707,8 @@ namespace winrt::TerminalApp::implementation
     // - the index of the currently focused tab if there is one, else nullopt
     std::optional<uint32_t> TerminalPage::_GetFocusedTabIndex() const noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // GH#1117: This is a workaround because _tabView.SelectedIndex()
         //          sometimes return incorrect result after removing some tabs
         uint32_t focusedIndex;
@@ -691,6 +724,8 @@ namespace winrt::TerminalApp::implementation
     //   so make sure to check the result!
     winrt::TerminalApp::TabBase TerminalPage::_GetFocusedTab() const noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (auto index{ _GetFocusedTabIndex() })
         {
             return _tabs.GetAt(*index);
@@ -703,6 +738,8 @@ namespace winrt::TerminalApp::implementation
     //   so make sure to check the result!
     winrt::com_ptr<TerminalTab> TerminalPage::_GetFocusedTabImpl() const noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (auto tab{ _GetFocusedTab() })
         {
             return _GetTerminalTabImpl(tab);
@@ -715,6 +752,8 @@ namespace winrt::TerminalApp::implementation
     //   so make sure to check the result!
     winrt::TerminalApp::TabBase TerminalPage::_GetTabByTabViewItem(const Microsoft::UI::Xaml::Controls::TabViewItem& tabViewItem) const noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         uint32_t tabIndexFromControl{};
         const auto items{ _tabView.TabItems() };
         if (items.IndexOf(tabViewItem, tabIndexFromControl))
@@ -737,6 +776,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_SetFocusedTab(const winrt::TerminalApp::TabBase tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // GH#1117: This is a workaround because _tabView.SelectedIndex(tabIndex)
         //          sometimes set focus to an incorrect tab after removing some tabs
 
@@ -756,6 +797,8 @@ namespace winrt::TerminalApp::implementation
     // - bool indicating whether the (read-only) pane can be closed.
     winrt::Windows::Foundation::IAsyncOperation<bool> TerminalPage::_PaneConfirmCloseReadOnly(std::shared_ptr<Pane> pane)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (pane->ContainsReadOnly())
         {
             const auto strongThis = get_strong();
@@ -787,6 +830,8 @@ namespace winrt::TerminalApp::implementation
     // - pane: the pane to close.
     void TerminalPage::_HandleClosePaneRequested(std::shared_ptr<Pane> pane)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Build the list of actions to recreate the closed pane,
         // BuildStartupActions returns the "first" pane and the rest of
         // its actions are assuming that first pane has been created first.
@@ -814,6 +859,8 @@ namespace winrt::TerminalApp::implementation
     //   tab's Closed event.
     winrt::fire_and_forget TerminalPage::_CloseFocusedPane()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             _UnZoomIfNeeded();
@@ -844,6 +891,8 @@ namespace winrt::TerminalApp::implementation
     // - paneIds: collection of the IDs of the panes that are marked for removal.
     void TerminalPage::_ClosePanes(weak_ref<TerminalTab> weakTab, std::vector<uint32_t> paneIds)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (auto strongTab{ weakTab.get() })
         {
             // Close all unfocused panes one by one
@@ -873,6 +922,8 @@ namespace winrt::TerminalApp::implementation
     // - Close the tab at the given index.
     void TerminalPage::_CloseTabAtIndex(uint32_t index)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (index >= _tabs.Size())
         {
             return;
@@ -889,6 +940,7 @@ namespace winrt::TerminalApp::implementation
     // - tabs - tabs to remove
     winrt::fire_and_forget TerminalPage::_RemoveTabs(const std::vector<winrt::TerminalApp::TabBase> tabs)
     {
+        assert(Dispatcher().HasThreadAccess());
         const auto strongThis = get_strong();
 
         for (auto& tab : tabs)
@@ -904,6 +956,8 @@ namespace winrt::TerminalApp::implementation
     // - eventArgs: the event's constituent arguments
     void TerminalPage::_OnTabClick(const IInspectable& sender, const Windows::UI::Xaml::Input::PointerRoutedEventArgs& eventArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (eventArgs.GetCurrentPoint(*this).Properties().IsMiddleButtonPressed())
         {
             const auto tabViewItem = sender.try_as<MUX::Controls::TabViewItem>();
@@ -921,6 +975,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_UpdatedSelectedTab(const winrt::TerminalApp::TabBase& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Unfocus all the tabs.
         for (const auto& tab : _tabs)
         {
@@ -972,6 +1028,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_UpdateBackground(const winrt::Microsoft::Terminal::Settings::Model::Profile& profile)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (profile && _settings.GlobalSettings().UseBackgroundImageForWindow())
         {
             _SetBackgroundImage(profile.DefaultAppearance());
@@ -986,6 +1044,8 @@ namespace winrt::TerminalApp::implementation
     // - eventArgs: the event's constituent arguments
     void TerminalPage::_OnTabSelectionChanged(const IInspectable& sender, const WUX::Controls::SelectionChangedEventArgs& /*eventArgs*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (!_rearranging && !_removing)
         {
             auto tabView = sender.as<MUX::Controls::TabView>();
@@ -1006,6 +1066,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_UpdateTabIndices()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto size = _tabs.Size();
         for (uint32_t i = 0; i < size; ++i)
         {
@@ -1023,6 +1085,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_UpdateMRUTab(const winrt::TerminalApp::TabBase& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         uint32_t mruIndex;
         if (_mruTabs.IndexOf(tab, mruIndex))
         {
@@ -1043,6 +1107,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_TryMoveTab(const uint32_t currentTabIndex, const int32_t suggestedNewTabIndex)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto newTabIndex = gsl::narrow_cast<uint32_t>(std::clamp<int32_t>(suggestedNewTabIndex, 0, _tabs.Size() - 1));
         if (currentTabIndex != newTabIndex)
         {
@@ -1061,6 +1127,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_TabDragStarted(const IInspectable& /*sender*/,
                                        const winrt::MUX::Controls::TabViewTabDragStartingEventArgs& eventArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _rearranging = true;
         _rearrangeFrom = std::nullopt;
         _rearrangeTo = std::nullopt;
@@ -1081,6 +1149,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_TabDragCompleted(const IInspectable& /*sender*/,
                                          const winrt::MUX::Controls::TabViewTabDragCompletedEventArgs& eventArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto& draggedTabViewItem{ eventArgs.Tab() };
 
         uint32_t tabIndexFromControl{};
@@ -1116,6 +1186,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_DismissTabContextMenus()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         for (const auto& tab : _tabs)
         {
             if (tab.TabViewItem().ContextFlyout())
@@ -1127,6 +1199,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_FocusCurrentTab(const bool focusAlways)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // We don't want to set focus on the tab if fly-out is open as it will
         // be closed TODO GH#5400: consider checking we are not in the opening
         // state, by hooking both Opening and Open events
@@ -1144,11 +1218,15 @@ namespace winrt::TerminalApp::implementation
 
     bool TerminalPage::_HasMultipleTabs() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _tabs.Size() > 1;
     }
 
     void TerminalPage::_RemoveAllTabs()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Since _RemoveTabs is asynchronous, create a snapshot of the  tabs we want to remove
         std::vector<winrt::TerminalApp::TabBase> tabsToRemove;
         std::copy(begin(_tabs), end(_tabs), std::back_inserter(tabsToRemove));

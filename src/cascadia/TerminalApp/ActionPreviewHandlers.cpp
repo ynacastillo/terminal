@@ -42,6 +42,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_EndPreview()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_lastPreviewedAction == nullptr)
         {
             return;
@@ -67,6 +69,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_RunRestorePreviews()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Apply the reverts in reverse order - If we had multiple previews
         // stacked on top of each other, then this will ensure the first one in
         // is the last one out.
@@ -94,6 +98,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_PreviewColorScheme(const Settings::Model::SetColorSchemeArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& scheme{ _settings.GlobalSettings().ColorSchemes().TryLookup(args.SchemeName()) })
         {
             const auto backup = _restorePreviewFuncs.empty();
@@ -120,6 +126,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_PreviewAdjustOpacity(const Settings::Model::AdjustOpacityArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto backup = _restorePreviewFuncs.empty();
 
         _ApplyToActiveControls([&](const auto& control) {
@@ -142,6 +150,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_PreviewAction(const Settings::Model::ActionAndArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         switch (args.Action())
         {
         case ShortcutAction::SetColorScheme:
@@ -181,6 +191,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_PreviewActionHandler(const IInspectable& /*sender*/,
                                              const Microsoft::Terminal::Settings::Model::Command& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args == nullptr || args.ActionAndArgs() == nullptr)
         {
             _EndPreview();

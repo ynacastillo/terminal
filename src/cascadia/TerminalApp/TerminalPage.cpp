@@ -64,6 +64,8 @@ namespace winrt::TerminalApp::implementation
         _hostingHwnd{},
         _WindowProperties{ std::move(properties) }
     {
+        assert(Dispatcher().HasThreadAccess());
+
         InitializeComponent();
 
         _WindowProperties.PropertyChanged({ get_weak(), &TerminalPage::_windowPropertyChanged });
@@ -79,6 +81,8 @@ namespace winrt::TerminalApp::implementation
     //   - see GH#2988
     HRESULT TerminalPage::Initialize(HWND hwnd)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (!_hostingHwnd.has_value())
         {
             // GH#13211 - if we haven't yet set the owning hwnd, reparent all the controls now.
@@ -134,6 +138,8 @@ namespace winrt::TerminalApp::implementation
 
     bool TerminalPage::IsRunningElevated() const noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // GH#2455 - Make sure to try/catch calls to Application::Current,
         // because that _won't_ be an instance of TerminalApp::App in the
         // LocalTests
@@ -146,6 +152,8 @@ namespace winrt::TerminalApp::implementation
     }
     bool TerminalPage::CanDragDrop() const noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         try
         {
             return Application::Current().as<TerminalApp::App>().Logic().CanDragDrop();
@@ -156,6 +164,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::Create()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Hookup the key bindings
         _HookupKeyBindings(_settings.ActionMap());
 
@@ -301,6 +311,8 @@ namespace winrt::TerminalApp::implementation
     // - true if we're not elevated but all relevant pane-spawning actions are elevated
     bool TerminalPage::ShouldImmediatelyHandoffToElevated(const CascadiaSettings& settings) const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // GH#12267: Don't forget about defterm handoff here. If we're being
         // created for embedding, then _yea_, we don't need to handoff to an
         // elevated window.
@@ -381,6 +393,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::HandoffToElevated(const CascadiaSettings& settings)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (!_startupActions)
         {
             return;
@@ -403,6 +417,7 @@ namespace winrt::TerminalApp::implementation
 
     winrt::fire_and_forget TerminalPage::NewTerminalByDrop(winrt::Windows::UI::Xaml::DragEventArgs& e)
     {
+        assert(Dispatcher().HasThreadAccess());
         const auto weakThis = get_weak();
 
         Windows::Foundation::Collections::IVectorView<Windows::Storage::IStorageItem> items;
@@ -453,6 +468,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_OnDispatchCommandRequested(const IInspectable& /*sender*/, const Microsoft::Terminal::Settings::Model::Command& command)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto& actionAndArgs = command.ActionAndArgs();
         _actionDispatch->DoAction(actionAndArgs);
     }
@@ -466,6 +483,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_OnCommandLineExecutionRequested(const IInspectable& /*sender*/, const winrt::hstring& commandLine)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         ExecuteCommandlineArgs args{ commandLine };
         ActionAndArgs actionAndArgs{ ShortcutAction::ExecuteCommandline, args };
         _actionDispatch->DoAction(actionAndArgs);
@@ -485,6 +504,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_OnFirstLayout(const IInspectable& /*sender*/, const IInspectable& /*eventArgs*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Only let this succeed once.
         _layoutUpdatedRevoker.revoke();
 
@@ -518,6 +539,8 @@ namespace winrt::TerminalApp::implementation
     // - <none> - May fail fast if setup fails as that would leave us in a weird state.
     void TerminalPage::_StartInboundListener()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_shouldStartInboundListener)
         {
             _shouldStartInboundListener = false;
@@ -554,6 +577,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::ProcessStartupActions(const Windows::Foundation::Collections::IVector<ActionAndArgs>& actions, const bool initial, const winrt::hstring cwd)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // If the caller provided a CWD, switch to that directory, then switch
         // back once we're done. This looks weird though, because we have to set
         // up the scope_exit _first_. We'll release the scope_exit if we don't
@@ -606,6 +631,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     winrt::fire_and_forget TerminalPage::_CompleteInitialization()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _startupState = StartupState::Initialized;
 
         // GH#632 - It's possible that the user tried to create the terminal
@@ -666,16 +693,22 @@ namespace winrt::TerminalApp::implementation
     //   Notes link, send feedback link and privacy policy link.
     void TerminalPage::_ShowAboutDialog()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ShowDialogHelper(L"AboutDialog");
     }
 
     winrt::hstring TerminalPage::ApplicationDisplayName()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return CascadiaSettings::ApplicationDisplayName();
     }
 
     winrt::hstring TerminalPage::ApplicationVersion()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return CascadiaSettings::ApplicationVersion();
     }
 
@@ -684,6 +717,8 @@ namespace winrt::TerminalApp::implementation
     // - We only open a content dialog if there isn't one open already
     winrt::Windows::Foundation::IAsyncOperation<ContentDialogResult> TerminalPage::_ShowDialogHelper(const std::wstring_view& name)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (auto presenter{ _dialogPresenter.get() })
         {
             co_return co_await presenter.ShowDialog(FindName(name).try_as<WUX::Controls::ContentDialog>());
@@ -699,6 +734,8 @@ namespace winrt::TerminalApp::implementation
     //   when this is called, nothing happens. See _ShowDialog for details
     winrt::Windows::Foundation::IAsyncOperation<ContentDialogResult> TerminalPage::_ShowQuitDialog()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _ShowDialogHelper(L"QuitDialog");
     }
 
@@ -711,6 +748,8 @@ namespace winrt::TerminalApp::implementation
     //   when this is called, nothing happens. See _ShowDialog for details
     winrt::Windows::Foundation::IAsyncOperation<ContentDialogResult> TerminalPage::_ShowCloseWarningDialog()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _ShowDialogHelper(L"CloseAllDialog");
     }
 
@@ -718,6 +757,8 @@ namespace winrt::TerminalApp::implementation
     // - Displays a dialog for warnings found while closing the terminal tab marked as read-only
     winrt::Windows::Foundation::IAsyncOperation<ContentDialogResult> TerminalPage::_ShowCloseReadOnlyDialog()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _ShowDialogHelper(L"CloseReadOnlyDialog");
     }
 
@@ -731,6 +772,8 @@ namespace winrt::TerminalApp::implementation
     //   when this is called, nothing happens. See _ShowDialog for details
     winrt::Windows::Foundation::IAsyncOperation<ContentDialogResult> TerminalPage::_ShowMultiLinePasteWarningDialog()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _ShowDialogHelper(L"MultiLinePasteDialog");
     }
 
@@ -742,6 +785,8 @@ namespace winrt::TerminalApp::implementation
     //   when this is called, nothing happens. See _ShowDialog for details
     winrt::Windows::Foundation::IAsyncOperation<ContentDialogResult> TerminalPage::_ShowLargePasteWarningDialog()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _ShowDialogHelper(L"LargePasteDialog");
     }
 
@@ -753,6 +798,8 @@ namespace winrt::TerminalApp::implementation
     //   Below the profiles are the static menu items: settings, command palette
     void TerminalPage::_CreateNewTabFlyout()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto newTabFlyout = WUX::Controls::MenuFlyout{};
         newTabFlyout.Placement(WUX::Controls::Primitives::FlyoutPlacementMode::BottomEdgeAlignedLeft);
 
@@ -856,6 +903,8 @@ namespace winrt::TerminalApp::implementation
     //   across a folder entry.
     std::vector<WUX::Controls::MenuFlyoutItemBase> TerminalPage::_CreateNewTabFlyoutItems(IVector<NewTabMenuEntry> entries)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         std::vector<WUX::Controls::MenuFlyoutItemBase> items;
 
         if (entries == nullptr || entries.Size() == 0)
@@ -975,6 +1024,8 @@ namespace winrt::TerminalApp::implementation
     //   It makes sure to set the correct icon, keybinding, and click-action.
     WUX::Controls::MenuFlyoutItem TerminalPage::_CreateNewTabFlyoutProfile(const Profile profile, int profileIndex)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto profileMenuItem = WUX::Controls::MenuFlyoutItem{};
 
         // Add the keyboard shortcuts based on the number of profiles defined
@@ -1048,6 +1099,8 @@ namespace winrt::TerminalApp::implementation
     //   MenuFlyoutSubItems
     IconElement TerminalPage::_CreateNewTabFlyoutIcon(const winrt::hstring& iconSource)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (iconSource.empty())
         {
             return nullptr;
@@ -1064,11 +1117,15 @@ namespace winrt::TerminalApp::implementation
     // Shows the dropdown flyout.
     void TerminalPage::_OpenNewTabDropdown()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _newTabButton.Flyout().ShowAt(_newTabButton);
     }
 
     void TerminalPage::_OpenNewTerminalViaDropdown(const NewTerminalArgs newTerminalArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // if alt is pressed, open a pane
         const auto window = CoreWindow::GetForCurrentThread();
         const auto rAltState = window.GetKeyState(VirtualKey::RightMenu);
@@ -1153,6 +1210,8 @@ namespace winrt::TerminalApp::implementation
                                                                                         TerminalSettings settings,
                                                                                         const bool inheritCursor)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         TerminalConnection::ITerminalConnection connection{ nullptr };
 
         auto connectionType = profile.ConnectionType();
@@ -1260,6 +1319,8 @@ namespace winrt::TerminalApp::implementation
 
     TerminalConnection::ITerminalConnection TerminalPage::_duplicateConnectionForRestart(std::shared_ptr<Pane> pane)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto& control{ pane->GetTerminalControl() };
         if (control == nullptr)
         {
@@ -1306,6 +1367,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_SettingsButtonOnClick(const IInspectable&,
                                               const RoutedEventArgs&)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto window = CoreWindow::GetForCurrentThread();
 
         // check alt state
@@ -1339,6 +1402,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_CommandPaletteButtonOnClick(const IInspectable&,
                                                     const RoutedEventArgs&)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto p = LoadCommandPalette();
         p.EnableCommandPaletteMode(CommandPaletteLaunchMode::Action);
         p.Visibility(Visibility::Visible);
@@ -1353,6 +1418,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_AboutButtonOnClick(const IInspectable&,
                                            const RoutedEventArgs&)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ShowAboutDialog();
     }
 
@@ -1371,6 +1438,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_KeyDownHandler(const Windows::Foundation::IInspectable& /*sender*/, const Windows::UI::Xaml::Input::KeyRoutedEventArgs& e)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto keyStatus = e.KeyStatus();
         const auto vkey = gsl::narrow_cast<WORD>(e.OriginalKey());
         const auto scanCode = gsl::narrow_cast<WORD>(keyStatus.ScanCode);
@@ -1442,6 +1511,8 @@ namespace winrt::TerminalApp::implementation
 
     bool TerminalPage::OnDirectKeyEvent(const uint32_t vkey, const uint8_t scanCode, const bool down)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto modifiers = _GetPressedModifierKeys();
         if (vkey == VK_SPACE && modifiers.IsAltPressed() && down)
         {
@@ -1543,6 +1614,8 @@ namespace winrt::TerminalApp::implementation
     // - bindings: An IActionMapView object to wire up with our event handlers
     void TerminalPage::_HookupKeyBindings(const IActionMapView& actionMap) noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _bindings->SetDispatch(*_actionDispatch);
         _bindings->SetActionMap(actionMap);
     }
@@ -1556,6 +1629,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_RegisterActionCallbacks()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Hook up the ShortcutActionDispatch object's events to our handlers.
         // They should all be hooked up here, regardless of whether or not
         // there's an actual keychord for them.
@@ -1572,6 +1647,8 @@ namespace winrt::TerminalApp::implementation
     // - tab: the Tab to update the title for.
     void TerminalPage::_UpdateTitle(const TerminalTab& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto newTabTitle = tab.Title();
 
         if (tab == _GetFocusedTab())
@@ -1589,6 +1666,8 @@ namespace winrt::TerminalApp::implementation
     // - term: The newly created TermControl to connect the events for
     void TerminalPage::_RegisterTerminalEvents(TermControl term)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         term.RaiseNotice({ this, &TerminalPage::_ControlNoticeRaisedHandler });
 
         // Add an event handler when the terminal's selection wants to be copied.
@@ -1633,6 +1712,8 @@ namespace winrt::TerminalApp::implementation
     // - hostingTab: The Tab that's hosting this TermControl instance
     void TerminalPage::_RegisterTabEvents(TerminalTab& hostingTab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto weakTab{ hostingTab.get_weak() };
         auto weakThis{ get_weak() };
         // PropertyChanged is the generic mechanism by which the Tab
@@ -1694,6 +1775,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_UnZoomIfNeeded()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             if (activeTab->IsZoomed())
@@ -1720,6 +1803,8 @@ namespace winrt::TerminalApp::implementation
     //   to the terminal when no other panes are present (GH#6219)
     bool TerminalPage::_MoveFocus(const FocusDirection& direction)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             return terminalTab->NavigateFocus(direction);
@@ -1736,6 +1821,8 @@ namespace winrt::TerminalApp::implementation
     // - true if panes were swapped.
     bool TerminalPage::_SwapPane(const FocusDirection& direction)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             _UnZoomIfNeeded();
@@ -1746,6 +1833,8 @@ namespace winrt::TerminalApp::implementation
 
     TermControl TerminalPage::_GetActiveControl()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             return terminalTab->GetActiveTerminalControl();
@@ -1755,6 +1844,8 @@ namespace winrt::TerminalApp::implementation
 
     CommandPalette TerminalPage::LoadCommandPalette()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto p = CommandPaletteElement())
         {
             return p;
@@ -1765,6 +1856,8 @@ namespace winrt::TerminalApp::implementation
 
     CommandPalette TerminalPage::_loadCommandPaletteSlowPath()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto p = FindName(L"CommandPaletteElement").as<CommandPalette>();
 
         p.SetCommands(_settings.GlobalSettings().ActionMap().ExpandedCommands());
@@ -1791,6 +1884,8 @@ namespace winrt::TerminalApp::implementation
     //   signal that we want to close everything.
     fire_and_forget TerminalPage::RequestQuit()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (!_displayingCloseDialog)
         {
             _displayingCloseDialog = true;
@@ -1816,6 +1911,8 @@ namespace winrt::TerminalApp::implementation
     // - the window layout
     WindowLayout TerminalPage::GetWindowLayout()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_startupState != StartupState::Initialized)
         {
             return nullptr;
@@ -1882,6 +1979,8 @@ namespace winrt::TerminalApp::implementation
     //   has already been prompted by the Quit action.
     fire_and_forget TerminalPage::CloseWindow(bool bypassDialog)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (!bypassDialog &&
             _HasMultipleTabs() &&
             _settings.GlobalSettings().ConfirmCloseAllTabs() &&
@@ -1916,6 +2015,8 @@ namespace winrt::TerminalApp::implementation
     // - rowsToScroll: a number of lines to move the viewport. If not provided we will use a system default.
     void TerminalPage::_Scroll(ScrollDirection scrollDirection, const Windows::Foundation::IReference<uint32_t>& rowsToScroll)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             uint32_t realRowsToScroll;
@@ -1949,6 +2050,8 @@ namespace winrt::TerminalApp::implementation
     // - true if the pane was successfully moved to the new tab.
     bool TerminalPage::_MovePane(MovePaneArgs args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto tabIdx{ args.TabIndex() };
         const auto windowId{ args.Window() };
 
@@ -2010,6 +2113,8 @@ namespace winrt::TerminalApp::implementation
     // and tabs to other windows.
     void TerminalPage::_DetachPaneFromWindow(std::shared_ptr<Pane> pane)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         pane->WalkTree([&](auto p) {
             if (const auto& control{ p->GetTerminalControl() })
             {
@@ -2020,6 +2125,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_DetachTabFromWindow(const winrt::com_ptr<TabBase>& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab = tab.try_as<TerminalTab>())
         {
             // Detach the root pane, which will act like the whole tab got detached.
@@ -2042,6 +2149,8 @@ namespace winrt::TerminalApp::implementation
                                     const uint32_t tabIndex,
                                     const std::optional<til::point>& dragPoint)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto winRtActions{ winrt::single_threaded_vector<ActionAndArgs>(std::move(actions)) };
         const auto str{ ActionAndArgs::Serialize(winRtActions) };
         const auto request = winrt::make_self<RequestMoveContentArgs>(windowName,
@@ -2056,6 +2165,8 @@ namespace winrt::TerminalApp::implementation
 
     bool TerminalPage::_MoveTab(MoveTabArgs args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // If there was a windowId in the action, try to move it to the
         // specified window instead of moving it in our tab row.
         const auto windowId{ args.Window() };
@@ -2087,6 +2198,8 @@ namespace winrt::TerminalApp::implementation
 
     uint32_t TerminalPage::NumberOfTabs() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _tabs.Size();
     }
 
@@ -2102,6 +2215,8 @@ namespace winrt::TerminalApp::implementation
     //   doing something like `wt -w 0 nt`.
     void TerminalPage::AttachContent(const IVector<Settings::Model::ActionAndArgs>& args, uint32_t tabIndex)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args == nullptr ||
             args.Size() == 0)
         {
@@ -2160,6 +2275,8 @@ namespace winrt::TerminalApp::implementation
                                   const float splitSize,
                                   std::shared_ptr<Pane> newPane)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto focusedTab{ _GetFocusedTabImpl() };
 
         // Clever hack for a crash in startup, with multiple sub-commands. Say
@@ -2209,6 +2326,8 @@ namespace winrt::TerminalApp::implementation
                                   const float splitSize,
                                   std::shared_ptr<Pane> newPane)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // If the caller is calling us with the return value of _MakePane
         // directly, it's possible that nullptr was returned, if the connections
         // was supposed to be launched in an elevated window. In that case, do
@@ -2250,6 +2369,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_ToggleSplitOrientation()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             _UnZoomIfNeeded();
@@ -2267,6 +2388,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_ResizePane(const ResizeDirection& direction)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             _UnZoomIfNeeded();
@@ -2281,6 +2404,8 @@ namespace winrt::TerminalApp::implementation
     // - scrollDirection: ScrollUp will move the viewport up, ScrollDown will move the viewport down
     void TerminalPage::_ScrollPage(ScrollDirection scrollDirection)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Do nothing if for some reason, there's no terminal tab in focus. We don't want to crash.
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
@@ -2295,6 +2420,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_ScrollToBufferEdge(ScrollDirection scrollDirection)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             auto scrollDelta = _ComputeScrollDelta(scrollDirection, INT_MAX);
@@ -2311,6 +2438,8 @@ namespace winrt::TerminalApp::implementation
     // - the title of the focused control if there is one, else "Terminal"
     hstring TerminalPage::Title()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_settings.GlobalSettings().ShowTitleInTitlebar())
         {
             auto selectedIndex = _tabView.SelectedIndex();
@@ -2371,6 +2500,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_SetAcceleratorForMenuItem(WUX::Controls::MenuFlyoutItem& menuItem,
                                                   const KeyChord& keyChord)
     {
+        assert(Dispatcher().HasThreadAccess());
+
 #ifdef DEP_MICROSOFT_UI_XAML_708_FIXED
         // work around https://github.com/microsoft/microsoft-ui-xaml/issues/708 in case of VK_OEM_COMMA
         if (keyChord.Vkey() != VK_OEM_COMMA)
@@ -2408,6 +2539,8 @@ namespace winrt::TerminalApp::implementation
     // - See Pane::CalcSnappedDimension
     float TerminalPage::CalcSnappedDimension(const bool widthOrHeight, const float dimension) const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_settings && _settings.GlobalSettings().SnapToGridOnResize())
         {
             if (const auto terminalTab{ _GetFocusedTabImpl() })
@@ -2426,6 +2559,10 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_CopyToClipboardHandler(const IInspectable /*sender*/,
                                                const CopyToClipboardEventArgs copiedData)
     {
+        assert(Dispatcher().HasThreadAccess());
+
+        // Callback from VT thread
+
         auto dataPack = DataPackage();
         dataPack.RequestedOperation(DataPackageOperation::Copy);
 
@@ -2572,6 +2709,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_OpenHyperlinkHandler(const IInspectable /*sender*/, const Microsoft::Terminal::Control::OpenHyperlinkEventArgs eventArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         try
         {
             auto parsed = winrt::Windows::Foundation::Uri(eventArgs.Uri().c_str());
@@ -2598,6 +2737,8 @@ namespace winrt::TerminalApp::implementation
     // - The uri
     void TerminalPage::_ShowCouldNotOpenDialog(winrt::hstring reason, winrt::hstring uri)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (auto presenter{ _dialogPresenter.get() })
         {
             // FindName needs to be called first to actually load the xaml object
@@ -2620,6 +2761,8 @@ namespace winrt::TerminalApp::implementation
     // - True if we support it, false otherwise
     bool TerminalPage::_IsUriSupported(const winrt::Windows::Foundation::Uri& parsedUri)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (parsedUri.SchemeName() == L"http" || parsedUri.SchemeName() == L"https")
         {
             return true;
@@ -2690,6 +2833,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_ShowControlNoticeDialog(const winrt::hstring& title, const winrt::hstring& message)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (auto presenter{ _dialogPresenter.get() })
         {
             // FindName needs to be called first to actually load the xaml object
@@ -2714,6 +2859,8 @@ namespace winrt::TerminalApp::implementation
     // - true iff we we able to copy text (if a selection was active)
     bool TerminalPage::_CopyText(const bool singleLine, const Windows::Foundation::IReference<CopyFormat>& formats)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ _GetActiveControl() })
         {
             return control.CopySelectionToClipboard(singleLine, formats);
@@ -2728,6 +2875,8 @@ namespace winrt::TerminalApp::implementation
     // - eventArgs: the arguments specifying how to set the progress indicator
     winrt::fire_and_forget TerminalPage::_SetTaskbarProgressHandler(const IInspectable /*sender*/, const IInspectable /*eventArgs*/)
     {
+        assert(!Dispatcher().HasThreadAccess());
+
         const auto weakThis = get_weak();
         co_await resume_foreground(Dispatcher());
         if (const auto strongThis = weakThis.get())
@@ -2743,6 +2892,8 @@ namespace winrt::TerminalApp::implementation
     // - args: the arguments specifying how to set the display status to ShowWindow for our window handle
     winrt::fire_and_forget TerminalPage::_ShowWindowChangedHandler(const IInspectable /*sender*/, const Microsoft::Terminal::Control::ShowWindowArgs args)
     {
+        assert(!Dispatcher().HasThreadAccess());
+
         const auto weakThis = get_weak();
         co_await resume_foreground(Dispatcher());
         if (const auto strongThis = weakThis.get())
@@ -2755,6 +2906,8 @@ namespace winrt::TerminalApp::implementation
     // - Paste text from the Windows Clipboard to the focused terminal
     void TerminalPage::_PasteText()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ _GetActiveControl() })
         {
             control.PasteTextFromClipboard();
@@ -2767,6 +2920,8 @@ namespace winrt::TerminalApp::implementation
     //   a background thread, as to not hang/crash the UI thread.
     void TerminalPage::_LaunchSettings(const SettingsTarget target)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (target == SettingsTarget::SettingsUI)
         {
             OpenSettingsUI();
@@ -2807,6 +2962,8 @@ namespace winrt::TerminalApp::implementation
     // - eventArgs: the event's constituent arguments
     void TerminalPage::_OnTabCloseRequested(const IInspectable& /*sender*/, const MUX::Controls::TabViewTabCloseRequestedEventArgs& eventArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto tabViewItem = eventArgs.Tab();
         if (auto tab{ _GetTabByTabViewItem(tabViewItem) })
         {
@@ -2816,6 +2973,8 @@ namespace winrt::TerminalApp::implementation
 
     TermControl TerminalPage::_CreateNewControlAndContent(const TerminalSettingsCreateResult& settings, const ITerminalConnection& connection)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Do any initialization that needs to apply to _every_ TermControl we
         // create here.
         // TermControl will copy the settings out of the settings passed to it.
@@ -2826,6 +2985,8 @@ namespace winrt::TerminalApp::implementation
 
     TermControl TerminalPage::_AttachControlToContent(const uint64_t& contentId)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& content{ _manager.TryLookupCore(contentId) })
         {
             // We have to pass in our current keybindings, because that's an
@@ -2840,6 +3001,8 @@ namespace winrt::TerminalApp::implementation
 
     TermControl TerminalPage::_SetupControl(const TermControl& term)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // GH#12515: ConPTY assumes it's hidden at the start. If we're not, let it know now.
         if (_visible)
         {
@@ -2877,6 +3040,8 @@ namespace winrt::TerminalApp::implementation
                                                   const winrt::TerminalApp::TabBase& sourceTab,
                                                   TerminalConnection::ITerminalConnection existingConnection)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // First things first - Check for making a pane from content ID.
         if (newTerminalArgs &&
             newTerminalArgs.ContentId() != 0)
@@ -2970,6 +3135,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_restartPaneConnection(const std::shared_ptr<Pane>& pane)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& connection{ _duplicateConnectionForRestart(pane) })
         {
             pane->GetTerminalControl().Connection(connection);
@@ -2986,6 +3153,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_SetBackgroundImage(const winrt::Microsoft::Terminal::Settings::Model::IAppearanceConfig& newAppearance)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (!_settings.GlobalSettings().UseBackgroundImageForWindow())
         {
             _tabContent.Background(nullptr);
@@ -3047,6 +3216,8 @@ namespace winrt::TerminalApp::implementation
     //   finally create the tab flyout
     void TerminalPage::_RefreshUIForSettingsReload()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Re-wire the keybindings to their handlers, as we'll have created a
         // new AppKeyBindings object.
         _HookupKeyBindings(_settings.ActionMap());
@@ -3153,6 +3324,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_updateAllTabCloseButtons(const winrt::TerminalApp::TabBase& focusedTab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Update the state of the CloseButtonOverlayMode property of
         // our TabView, to match the tab.showCloseButton property in the theme.
         //
@@ -3213,6 +3386,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::SetStartupActions(std::vector<ActionAndArgs>& actions)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // The fastest way to copy all the actions out of the std::vector and
         // put them into a winrt::IVector is by making a copy, then moving the
         // copy into the winrt vector ctor.
@@ -3230,6 +3405,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::SetInboundListener(bool isEmbedding)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _shouldStartInboundListener = true;
         _isEmbeddingInboundListener = isEmbedding;
 
@@ -3243,11 +3420,15 @@ namespace winrt::TerminalApp::implementation
 
     winrt::TerminalApp::IDialogPresenter TerminalPage::DialogPresenter() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _dialogPresenter.get();
     }
 
     void TerminalPage::DialogPresenter(winrt::TerminalApp::IDialogPresenter dialogPresenter)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _dialogPresenter = dialogPresenter;
     }
 
@@ -3265,6 +3446,8 @@ namespace winrt::TerminalApp::implementation
     //   progress percentage of all our tabs.
     winrt::TerminalApp::TaskbarState TerminalPage::TaskbarState() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto state{ winrt::make<winrt::TerminalApp::implementation::TaskbarState>() };
 
         for (const auto& tab : _tabs)
@@ -3292,6 +3475,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::TitlebarClicked()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_newTabButton && _newTabButton.Flyout())
         {
             _newTabButton.Flyout().Hide();
@@ -3309,6 +3494,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::WindowVisibilityChanged(const bool showOrHide)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _visible = showOrHide;
         for (const auto& tab : _tabs)
         {
@@ -3336,6 +3523,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_Find(const TerminalTab& tab)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ tab.GetActiveTerminalControl() })
         {
             control.CreateSearchBoxControl();
@@ -3351,11 +3540,15 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::ToggleFocusMode()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         SetFocusMode(!_isInFocusMode);
     }
 
     void TerminalPage::SetFocusMode(const bool inFocusMode)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto newInFocusMode = inFocusMode;
         if (newInFocusMode != FocusMode())
         {
@@ -3374,6 +3567,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::ToggleFullscreen()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         SetFullscreen(!_isFullscreen);
     }
 
@@ -3385,6 +3580,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::ToggleAlwaysOnTop()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _isAlwaysOnTop = !_isAlwaysOnTop;
         _AlwaysOnTopChangedHandlers(*this, nullptr);
     }
@@ -3402,6 +3599,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_SetNewTabButtonColor(const Windows::UI::Color& color, const Windows::UI::Color& accentColor)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // TODO GH#3327: Look at what to do with the tab button when we have XAML theming
         auto IsBrightColor = ColorHelper::IsBrightColor(color);
         auto isLightAccentColor = ColorHelper::IsBrightColor(accentColor);
@@ -3471,6 +3670,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_ClearNewTabButtonColor()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // TODO GH#3327: Look at what to do with the tab button when we have XAML theming
         winrt::hstring keys[] = {
             L"SplitButtonBackground",
@@ -3552,16 +3753,22 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_FocusActiveControl(IInspectable /*sender*/,
                                            IInspectable /*eventArgs*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _FocusCurrentTab(false);
     }
 
     bool TerminalPage::FocusMode() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _isInFocusMode;
     }
 
     bool TerminalPage::Fullscreen() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _isFullscreen;
     }
 
@@ -3576,11 +3783,15 @@ namespace winrt::TerminalApp::implementation
     // - true if we should be in "always on top" mode
     bool TerminalPage::AlwaysOnTop() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         return _isAlwaysOnTop;
     }
 
     void TerminalPage::SetFullscreen(bool newFullscreen)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_isFullscreen == newFullscreen)
         {
             return;
@@ -3594,6 +3805,8 @@ namespace winrt::TerminalApp::implementation
     // - Updates the page's state for isMaximized when the window changes externally.
     void TerminalPage::Maximized(bool newMaximized)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _isMaximized = newMaximized;
     }
 
@@ -3601,6 +3814,8 @@ namespace winrt::TerminalApp::implementation
     // - Asks the window to change its maximized state.
     void TerminalPage::RequestSetMaximized(bool newMaximized)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_isMaximized == newMaximized)
         {
             return;
@@ -3611,6 +3826,8 @@ namespace winrt::TerminalApp::implementation
 
     HRESULT TerminalPage::_OnNewConnection(const ConptyConnection& connection)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _newConnectionRevoker.revoke();
 
         // We need to be on the UI thread in order for _OpenNewTab to run successfully.
@@ -3683,6 +3900,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::OpenSettingsUI()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // If we're holding the settings tab's switch command, don't create a new one, switch to the existing one.
         if (!_settingsTab)
         {
@@ -3817,6 +4036,8 @@ namespace winrt::TerminalApp::implementation
     //   Service" is disabled.
     void TerminalPage::ShowKeyboardServiceWarning() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (!_IsMessageDismissed(InfoBarMessage::KeyboardServiceWarning))
         {
             if (const auto keyboardServiceWarningInfoBar = FindName(L"KeyboardServiceWarningInfoBar").try_as<MUX::Controls::InfoBar>())
@@ -3830,6 +4051,8 @@ namespace winrt::TerminalApp::implementation
     // - Displays a info popup guiding the user into setting their default terminal.
     void TerminalPage::ShowSetAsDefaultInfoBar() const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (::winrt::Windows::UI::Xaml::Application::Current().try_as<::winrt::TerminalApp::App>() == nullptr)
         {
             // Just ignore this in the tests (where the Application::Current()
@@ -3904,6 +4127,8 @@ namespace winrt::TerminalApp::implementation
     // - The warning message, including the OS-localized service name.
     winrt::hstring TerminalPage::KeyboardServiceDisabledText()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto serviceName{ _getTabletServiceName() };
         const winrt::hstring text{ fmt::format(std::wstring_view(RS_(L"KeyboardServiceWarningText")), serviceName) };
         return text;
@@ -3915,6 +4140,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_HidePointerCursorHandler(const IInspectable& /*sender*/, const IInspectable& /*eventArgs*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_shouldMouseVanish && !_isMouseHidden)
         {
             if (auto window{ CoreWindow::GetForCurrentThread() })
@@ -3935,6 +4162,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_RestorePointerCursorHandler(const IInspectable& /*sender*/, const IInspectable& /*eventArgs*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_isMouseHidden)
         {
             if (auto window{ CoreWindow::GetForCurrentThread() })
@@ -3959,6 +4188,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_UpdateTeachingTipTheme(winrt::Windows::UI::Xaml::FrameworkElement element)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto theme{ _settings.GlobalSettings().CurrentTheme() };
         auto requestedTheme{ theme.RequestedTheme() };
         while (element)
@@ -3981,6 +4212,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::IdentifyWindow()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto weakThis{ get_weak() };
         if (auto page{ weakThis.get() })
         {
@@ -4016,6 +4249,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::RenameFailed()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto weakThis{ get_weak() };
         if (auto page{ weakThis.get() })
         {
@@ -4053,12 +4288,16 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_WindowRenamerActionClick(const IInspectable& /*sender*/,
                                                  const IInspectable& /*eventArgs*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto newName = WindowRenamerTextBox().Text();
         _RequestWindowRename(newName);
     }
 
     void TerminalPage::_RequestWindowRename(const winrt::hstring& newName)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto request = winrt::make<implementation::RenameWindowRequestedArgs>(newName);
         // The WindowRenamer is _not_ a Toast - we want it to stay open until
         // the user dismisses it.
@@ -4089,6 +4328,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_WindowRenamerKeyDown(const IInspectable& /*sender*/,
                                              const winrt::Windows::UI::Xaml::Input::KeyRoutedEventArgs& e)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto key = e.OriginalKey();
         if (key == Windows::System::VirtualKey::Enter)
         {
@@ -4106,6 +4347,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_WindowRenamerKeyUp(const IInspectable& sender,
                                            const winrt::Windows::UI::Xaml::Input::KeyRoutedEventArgs& e)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto key = e.OriginalKey();
         if (key == Windows::System::VirtualKey::Enter && _renamerPressedEnter)
         {
@@ -4126,6 +4369,8 @@ namespace winrt::TerminalApp::implementation
     //   it gets ~ ~ weird ~ ~ when they do. Remove when TODO GH#5047 is done.
     Profile TerminalPage::GetClosestProfileForDuplicationOfProfile(const Profile& profile) const noexcept
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (profile == _settings.ProfileDefaults())
         {
             return _settings.FindProfile(_settings.GlobalSettings().DefaultProfile());
@@ -4148,6 +4393,8 @@ namespace winrt::TerminalApp::implementation
     // on another thread.
     void TerminalPage::_OpenElevatedWT(NewTerminalArgs newTerminalArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // BODGY
         //
         // We're going to construct the commandline we want, then toss it to a
@@ -4206,6 +4453,8 @@ namespace winrt::TerminalApp::implementation
                                      const TerminalSettingsCreateResult& controlSettings,
                                      const Profile& profile)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Try to handle auto-elevation
         const auto requestedElevation = controlSettings.DefaultSettings().Elevate();
         const auto currentlyElevated = IsRunningElevated();
@@ -4265,6 +4514,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_CloseOnExitInfoDismissHandler(const IInspectable& /*sender*/, const IInspectable& /*args*/) const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _DismissMessage(InfoBarMessage::CloseOnExitInfo);
         if (const auto infoBar = FindName(L"CloseOnExitInfoBar").try_as<MUX::Controls::InfoBar>())
         {
@@ -4281,6 +4532,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_KeyboardServiceWarningInfoDismissHandler(const IInspectable& /*sender*/, const IInspectable& /*args*/) const
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _DismissMessage(InfoBarMessage::KeyboardServiceWarning);
         if (const auto infoBar = FindName(L"KeyboardServiceWarningInfoBar").try_as<MUX::Controls::InfoBar>())
         {
@@ -4297,6 +4550,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_SetAsDefaultDismissHandler(const IInspectable& /*sender*/, const IInspectable& /*args*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _DismissMessage(InfoBarMessage::SetAsDefault);
         if (const auto infoBar = FindName(L"SetAsDefaultInfoBar").try_as<MUX::Controls::InfoBar>())
         {
@@ -4312,6 +4567,8 @@ namespace winrt::TerminalApp::implementation
     // - Dismisses the Default Terminal tip and opens the settings.
     void TerminalPage::_SetAsDefaultOpenSettingsHandler(const IInspectable& /*sender*/, const IInspectable& /*args*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto infoBar = FindName(L"SetAsDefaultInfoBar").try_as<MUX::Controls::InfoBar>())
         {
             infoBar.IsOpen(false);
@@ -4370,6 +4627,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_updateThemeColors()
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_settings == nullptr)
         {
             return;
@@ -4475,6 +4734,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalPage::_updatePaneResources(const winrt::Windows::UI::Xaml::ElementTheme& requestedTheme)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto res = Application::Current().Resources();
         const auto accentColorKey = winrt::box_value(L"SystemAccentColor");
         if (res.HasKey(accentColorKey))
@@ -4514,6 +4775,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::WindowActivated(const bool activated)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Stash if we're activated. Use that when we reload
         // the settings, change active panes, etc.
         _activated = activated;
@@ -4523,17 +4786,23 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_ContextMenuOpened(const IInspectable& sender,
                                           const IInspectable& /*args*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _PopulateContextMenu(sender, false /*withSelection*/);
     }
     void TerminalPage::_SelectionMenuOpened(const IInspectable& sender,
                                             const IInspectable& /*args*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _PopulateContextMenu(sender, true /*withSelection*/);
     }
 
     void TerminalPage::_PopulateContextMenu(const IInspectable& sender,
                                             const bool /*withSelection*/)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // withSelection can be used to add actions that only appear if there's
         // selected text, like "search the web". In this initial draft, it's not
         // actually augmented by the TerminalPage, so it's left commented out.
@@ -4596,6 +4865,8 @@ namespace winrt::TerminalApp::implementation
     // to pop the "Identify Window" toast when the user renames our window.
     void TerminalPage::_windowPropertyChanged(const IInspectable& /*sender*/, const WUX::Data::PropertyChangedEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args.PropertyName() != L"WindowName")
         {
             return;
@@ -4617,6 +4888,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_onTabDragStarting(const winrt::Microsoft::UI::Xaml::Controls::TabView&,
                                           const winrt::Microsoft::UI::Xaml::Controls::TabViewTabDragStartingEventArgs& e)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Get the tab impl from this event.
         const auto eventTab = e.Tab();
         const auto tabBase = _GetTabByTabViewItem(eventTab);
@@ -4669,6 +4942,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_onTabStripDragOver(const winrt::Windows::Foundation::IInspectable& /*sender*/,
                                            const winrt::Windows::UI::Xaml::DragEventArgs& e)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // We must mark that we can accept the drag/drop. The system will never
         // call TabStripDrop on us if we don't indicate that we're willing.
         const auto& props{ e.DataView().Properties() };
@@ -4692,6 +4967,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_onTabStripDrop(winrt::Windows::Foundation::IInspectable /*sender*/,
                                        winrt::Windows::UI::Xaml::DragEventArgs e)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Get the PID and make sure it is the same as ours.
         if (const auto& pidObj{ e.DataView().Properties().TryLookup(L"pid") })
         {
@@ -4764,6 +5041,8 @@ namespace winrt::TerminalApp::implementation
     //   can largely reuse that.
     void TerminalPage::SendContentToOther(winrt::TerminalApp::RequestReceiveContentArgs args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // validate that we're the source window of the tab in this request
         if (args.SourceWindow() != _WindowProperties.WindowId())
         {
@@ -4788,6 +5067,8 @@ namespace winrt::TerminalApp::implementation
 
     void TerminalPage::_onTabDroppedOutside(winrt::IInspectable sender, winrt::MUX::Controls::TabViewTabDroppedOutsideEventArgs e)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Get the current pointer point from the CoreWindow
         const auto& pointerPoint{ CoreWindow::GetForCurrentThread().PointerPosition() };
 
@@ -4823,6 +5104,8 @@ namespace winrt::TerminalApp::implementation
                                                const uint32_t tabIndex,
                                                std::optional<til::point> dragPoint)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         auto startupActions = _stashed.draggedTab->BuildStartupActions(true);
         _DetachTabFromWindow(_stashed.draggedTab);
 

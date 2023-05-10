@@ -32,6 +32,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleOpenNewTabDropdown(const IInspectable& /*sender*/,
                                                  const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _OpenNewTabDropdown();
         args.Handled(true);
     }
@@ -39,6 +41,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleDuplicateTab(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _DuplicateFocusedTab();
         args.Handled(true);
     }
@@ -46,6 +50,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleCloseTab(const IInspectable& /*sender*/,
                                        const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto realArgs = args.ActionArgs().try_as<CloseTabArgs>())
         {
             uint32_t index;
@@ -71,6 +77,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleClosePane(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _CloseFocusedPane();
         args.Handled(true);
     }
@@ -78,6 +86,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleRestoreLastClosed(const IInspectable& /*sender*/,
                                                 const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_previouslyClosedPanesAndTabs.size() > 0)
         {
             const auto restoreActions = _previouslyClosedPanesAndTabs.back();
@@ -94,6 +104,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleCloseWindow(const IInspectable& /*sender*/,
                                           const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _CloseRequestedHandlers(nullptr, nullptr);
         args.Handled(true);
     }
@@ -101,6 +113,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleQuit(const IInspectable& /*sender*/,
                                    const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         RequestQuit();
         args.Handled(true);
     }
@@ -108,6 +122,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleScrollUp(const IInspectable& /*sender*/,
                                        const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto& realArgs = args.ActionArgs().try_as<ScrollUpArgs>();
         if (realArgs)
         {
@@ -119,6 +135,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleScrollDown(const IInspectable& /*sender*/,
                                          const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto& realArgs = args.ActionArgs().try_as<ScrollDownArgs>();
         if (realArgs)
         {
@@ -130,6 +148,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleNextTab(const IInspectable& /*sender*/,
                                       const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto& realArgs = args.ActionArgs().try_as<NextTabArgs>();
         if (realArgs)
         {
@@ -141,6 +161,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandlePrevTab(const IInspectable& /*sender*/,
                                       const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto& realArgs = args.ActionArgs().try_as<PrevTabArgs>();
         if (realArgs)
         {
@@ -152,6 +174,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSendInput(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args == nullptr)
         {
             args.Handled(false);
@@ -169,6 +193,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleCloseOtherPanes(const IInspectable& /*sender*/,
                                               const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto terminalTab{ _GetFocusedTabImpl() })
         {
             const auto activePane = terminalTab->GetActivePane();
@@ -203,6 +229,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleMovePane(const IInspectable& /*sender*/,
                                        const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args == nullptr)
         {
             args.Handled(false);
@@ -217,6 +245,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSplitPane(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args == nullptr)
         {
             args.Handled(false);
@@ -247,6 +277,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleToggleSplitOrientation(const IInspectable& /*sender*/,
                                                      const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ToggleSplitOrientation();
         args.Handled(true);
     }
@@ -254,6 +286,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleTogglePaneZoom(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             // Don't do anything if there's only one pane. It's already zoomed.
@@ -277,6 +311,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleTogglePaneReadOnly(const IInspectable& /*sender*/,
                                                  const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             activeTab->TogglePaneReadOnly();
@@ -288,6 +324,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleEnablePaneReadOnly(const IInspectable& /*sender*/,
                                                  const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             activeTab->SetPaneReadOnly(true);
@@ -299,6 +337,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleDisablePaneReadOnly(const IInspectable& /*sender*/,
                                                   const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             activeTab->SetPaneReadOnly(false);
@@ -310,6 +350,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleScrollUpPage(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ScrollPage(ScrollUp);
         args.Handled(true);
     }
@@ -317,6 +359,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleScrollDownPage(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ScrollPage(ScrollDown);
         args.Handled(true);
     }
@@ -324,6 +368,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleScrollToTop(const IInspectable& /*sender*/,
                                           const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ScrollToBufferEdge(ScrollUp);
         args.Handled(true);
     }
@@ -331,6 +377,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleScrollToBottom(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ScrollToBufferEdge(ScrollDown);
         args.Handled(true);
     }
@@ -338,6 +386,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleScrollToMark(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<ScrollToMarkArgs>())
         {
             _ApplyToActiveControls([&realArgs](auto& control) {
@@ -349,6 +399,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleAddMark(const IInspectable& /*sender*/,
                                       const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<AddMarkArgs>())
         {
             _ApplyToActiveControls([realArgs](auto& control) {
@@ -370,6 +422,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleClearMark(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ApplyToActiveControls([](auto& control) {
             control.ClearMark();
         });
@@ -378,6 +432,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleClearAllMarks(const IInspectable& /*sender*/,
                                             const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _ApplyToActiveControls([](auto& control) {
             control.ClearAllMarks();
         });
@@ -387,6 +443,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleFindMatch(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<FindMatchArgs>())
         {
             if (const auto& control{ _GetActiveControl() })
@@ -399,6 +457,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleOpenSettings(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<OpenSettingsArgs>())
         {
             _LaunchSettings(realArgs.Target());
@@ -409,6 +469,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandlePasteText(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _PasteText();
         args.Handled(true);
     }
@@ -416,6 +478,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleNewTab(const IInspectable& /*sender*/,
                                      const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args == nullptr)
         {
             LOG_IF_FAILED(_OpenNewTab(nullptr));
@@ -443,6 +507,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSwitchToTab(const IInspectable& /*sender*/,
                                           const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<SwitchToTabArgs>())
         {
             _SelectTab({ realArgs.TabIndex() });
@@ -453,6 +519,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleResizePane(const IInspectable& /*sender*/,
                                          const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<ResizePaneArgs>())
         {
             if (realArgs.ResizeDirection() == ResizeDirection::None)
@@ -471,6 +539,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleMoveFocus(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<MoveFocusArgs>())
         {
             if (realArgs.FocusDirection() == FocusDirection::None)
@@ -492,6 +562,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSwapPane(const IInspectable& /*sender*/,
                                        const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<SwapPaneArgs>())
         {
             if (realArgs.Direction() == FocusDirection::None)
@@ -510,6 +582,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleCopyText(const IInspectable& /*sender*/,
                                        const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<CopyTextArgs>())
         {
             const auto handled = _CopyText(realArgs.SingleLine(), realArgs.CopyFormatting());
@@ -520,6 +594,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleAdjustFontSize(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<AdjustFontSizeArgs>())
         {
             const auto res = _ApplyToActiveControls([&](auto& control) {
@@ -532,6 +608,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleFind(const IInspectable& /*sender*/,
                                    const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             _Find(*activeTab);
@@ -542,6 +620,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleResetFontSize(const IInspectable& /*sender*/,
                                             const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto res = _ApplyToActiveControls([](auto& control) {
             control.ResetFontSize();
         });
@@ -551,6 +631,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleToggleShaderEffects(const IInspectable& /*sender*/,
                                                   const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto res = _ApplyToActiveControls([](auto& control) {
             control.ToggleShaderEffects();
         });
@@ -560,6 +642,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleToggleFocusMode(const IInspectable& /*sender*/,
                                               const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         ToggleFocusMode();
         args.Handled(true);
     }
@@ -567,6 +651,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSetFocusMode(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<SetFocusModeArgs>())
         {
             SetFocusMode(realArgs.IsFocusMode());
@@ -577,6 +663,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleToggleFullscreen(const IInspectable& /*sender*/,
                                                const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         ToggleFullscreen();
         args.Handled(true);
     }
@@ -584,6 +672,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSetFullScreen(const IInspectable& /*sender*/,
                                             const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<SetFullScreenArgs>())
         {
             SetFullscreen(realArgs.IsFullScreen());
@@ -594,6 +684,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSetMaximized(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<SetMaximizedArgs>())
         {
             RequestSetMaximized(realArgs.IsMaximized());
@@ -604,6 +696,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleToggleAlwaysOnTop(const IInspectable& /*sender*/,
                                                 const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         ToggleAlwaysOnTop();
         args.Handled(true);
     }
@@ -611,6 +705,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleToggleCommandPalette(const IInspectable& /*sender*/,
                                                    const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = args.ActionArgs().try_as<ToggleCommandPaletteArgs>())
         {
             const auto p = LoadCommandPalette();
@@ -624,6 +720,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSetColorScheme(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         args.Handled(false);
         if (const auto& realArgs = args.ActionArgs().try_as<SetColorSchemeArgs>())
         {
@@ -640,6 +738,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSetTabColor(const IInspectable& /*sender*/,
                                           const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         Windows::Foundation::IReference<Windows::UI::Color> tabColor;
 
         if (const auto& realArgs = args.ActionArgs().try_as<SetTabColorArgs>())
@@ -664,6 +764,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleOpenTabColorPicker(const IInspectable& /*sender*/,
                                                  const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             activeTab->RequestColorPicker();
@@ -674,6 +776,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleRenameTab(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         std::optional<winrt::hstring> title;
 
         if (const auto& realArgs = args.ActionArgs().try_as<RenameTabArgs>())
@@ -698,6 +802,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleOpenTabRenamer(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             activeTab->ActivateTabRenamer();
@@ -708,6 +814,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleExecuteCommandline(const IInspectable& /*sender*/,
                                                  const ActionEventArgs& actionArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = actionArgs.ActionArgs().try_as<ExecuteCommandlineArgs>())
         {
             auto actions = winrt::single_threaded_vector<ActionAndArgs>(std::move(
@@ -724,6 +832,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleCloseOtherTabs(const IInspectable& /*sender*/,
                                              const ActionEventArgs& actionArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = actionArgs.ActionArgs().try_as<CloseOtherTabsArgs>())
         {
             uint32_t index;
@@ -763,6 +873,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleCloseTabsAfter(const IInspectable& /*sender*/,
                                              const ActionEventArgs& actionArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = actionArgs.ActionArgs().try_as<CloseTabsAfterArgs>())
         {
             uint32_t index;
@@ -799,6 +911,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleTabSearch(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         const auto p = LoadCommandPalette();
         p.SetTabs(_tabs, _mruTabs);
         p.EnableTabSearchMode();
@@ -810,6 +924,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleMoveTab(const IInspectable& /*sender*/,
                                       const ActionEventArgs& actionArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& realArgs = actionArgs.ActionArgs().try_as<MoveTabArgs>())
         {
             auto moved = _MoveTab(realArgs);
@@ -820,6 +936,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleBreakIntoDebugger(const IInspectable& /*sender*/,
                                                 const ActionEventArgs& actionArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (_settings.GlobalSettings().DebugFeaturesEnabled())
         {
             actionArgs.Handled(true);
@@ -843,6 +961,8 @@ namespace winrt::TerminalApp::implementation
     // on another thread.
     fire_and_forget TerminalPage::_OpenNewWindow(const NewTerminalArgs newTerminalArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // This will get us the correct exe for dev/preview/release. If you
         // don't stick this in a local, it'll get mangled by ShellExecute. I
         // have no idea why.
@@ -878,6 +998,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleNewWindow(const IInspectable& /*sender*/,
                                         const ActionEventArgs& actionArgs)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         NewTerminalArgs newTerminalArgs{ nullptr };
         // If the caller provided NewTerminalArgs, then try to use those
         if (actionArgs)
@@ -918,6 +1040,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleIdentifyWindows(const IInspectable& /*sender*/,
                                               const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _IdentifyWindowsRequestedHandlers(*this, nullptr);
         args.Handled(true);
     }
@@ -934,6 +1058,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleIdentifyWindow(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         IdentifyWindow();
         args.Handled(true);
     }
@@ -941,6 +1067,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleRenameWindow(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<RenameWindowArgs>())
@@ -956,6 +1084,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleOpenWindowRenamer(const IInspectable& /*sender*/,
                                                 const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (WindowRenamer() == nullptr)
         {
             // We need to use FindName to lazy-load this object
@@ -1021,6 +1151,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleGlobalSummon(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Manually return false. These shouldn't ever get here, except for when
         // we fail to register for the global hotkey. In that case, returning
         // false here will let the underlying terminal still process the key, as
@@ -1030,6 +1162,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleQuakeMode(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         // Manually return false. These shouldn't ever get here, except for when
         // we fail to register for the global hotkey. In that case, returning
         // false here will let the underlying terminal still process the key, as
@@ -1040,6 +1174,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleFocusPane(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<FocusPaneArgs>())
@@ -1057,6 +1193,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleOpenSystemMenu(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         _OpenSystemMenuHandlers(*this, nullptr);
         args.Handled(true);
     }
@@ -1064,6 +1202,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleExportBuffer(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             if (args)
@@ -1088,6 +1228,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleClearBuffer(const IInspectable& /*sender*/,
                                           const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<ClearBufferArgs>())
@@ -1103,6 +1245,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleMultipleActions(const IInspectable& /*sender*/,
                                               const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<MultipleActionsArgs>())
@@ -1120,6 +1264,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleAdjustOpacity(const IInspectable& /*sender*/,
                                             const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<AdjustOpacityArgs>())
@@ -1135,6 +1281,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSelectAll(const IInspectable& /*sender*/,
                                         const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ _GetActiveControl() })
         {
             control.SelectAll();
@@ -1145,6 +1293,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSelectCommand(const IInspectable& /*sender*/,
                                             const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<SelectCommandArgs>())
@@ -1159,6 +1309,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSelectOutput(const IInspectable& /*sender*/,
                                            const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<SelectOutputArgs>())
@@ -1174,6 +1326,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleMarkMode(const IInspectable& /*sender*/,
                                        const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ _GetActiveControl() })
         {
             control.ToggleMarkMode();
@@ -1184,6 +1338,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleToggleBlockSelection(const IInspectable& /*sender*/,
                                                    const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ _GetActiveControl() })
         {
             const auto handled = control.ToggleBlockSelection();
@@ -1194,6 +1350,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleSwitchSelectionEndpoint(const IInspectable& /*sender*/,
                                                       const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ _GetActiveControl() })
         {
             const auto handled = control.SwitchSelectionEndpoint();
@@ -1204,6 +1362,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleColorSelection(const IInspectable& /*sender*/,
                                              const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (args)
         {
             if (const auto& realArgs = args.ActionArgs().try_as<ColorSelectionArgs>())
@@ -1219,6 +1379,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleExpandSelectionToWord(const IInspectable& /*sender*/,
                                                     const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto& control{ _GetActiveControl() })
         {
             const auto handled = control.ExpandSelectionToWord();
@@ -1229,6 +1391,8 @@ namespace winrt::TerminalApp::implementation
     void TerminalPage::_HandleRestartConnection(const IInspectable& /*sender*/,
                                                 const ActionEventArgs& args)
     {
+        assert(Dispatcher().HasThreadAccess());
+
         if (const auto activeTab{ _GetFocusedTabImpl() })
         {
             if (const auto activePane{ activeTab->GetActivePane() })

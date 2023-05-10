@@ -48,6 +48,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_CreateContextMenu()
     {
+        ASSERT_UI_THREAD();
+
         auto weakThis{ get_weak() };
 
         // Build the menu
@@ -73,6 +75,8 @@ namespace winrt::TerminalApp::implementation
     //   enables subclasses to add their own entries to this menu.
     winrt::Windows::UI::Xaml::Controls::MenuFlyoutSubItem TabBase::_AppendCloseMenuItems(winrt::Windows::UI::Xaml::Controls::MenuFlyout flyout)
     {
+        ASSERT_UI_THREAD();
+
         auto weakThis{ get_weak() };
 
         // Close tabs after
@@ -140,6 +144,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_EnableCloseMenuItems()
     {
+        ASSERT_UI_THREAD();
+
         // close other tabs is enabled only if there are other tabs
         _closeOtherTabsMenuItem.IsEnabled(TabViewNumTabs() > 1);
         // close tabs after is enabled only if there are other tabs on the right
@@ -148,6 +154,8 @@ namespace winrt::TerminalApp::implementation
 
     void TabBase::_CloseTabsAfter()
     {
+        ASSERT_UI_THREAD();
+
         CloseTabsAfterArgs args{ _TabViewIndex };
         ActionAndArgs closeTabsAfter{ ShortcutAction::CloseTabsAfter, args };
 
@@ -156,6 +164,8 @@ namespace winrt::TerminalApp::implementation
 
     void TabBase::_CloseOtherTabs()
     {
+        ASSERT_UI_THREAD();
+
         CloseOtherTabsArgs args{ _TabViewIndex };
         ActionAndArgs closeOtherTabs{ ShortcutAction::CloseOtherTabs, args };
 
@@ -196,6 +206,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_UpdateSwitchToTabKeyChord()
     {
+        ASSERT_UI_THREAD();
+
         const auto keyChord = _actionMap ? _actionMap.GetKeyBindingForAction(ShortcutAction::SwitchToTab, SwitchToTabArgs{ _TabViewIndex }) : nullptr;
         const auto keyChordText = keyChord ? KeyChordSerialization::ToString(keyChord) : L"";
 
@@ -216,6 +228,8 @@ namespace winrt::TerminalApp::implementation
     // - The value to populate in the title run of the tool tip
     winrt::hstring TabBase::_CreateToolTipTitle()
     {
+        ASSERT_UI_THREAD();
+
         return _Title;
     }
 
@@ -227,6 +241,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_UpdateToolTip()
     {
+        ASSERT_UI_THREAD();
+
         auto titleRun = WUX::Documents::Run();
         titleRun.Text(_CreateToolTipTitle());
 
@@ -312,6 +328,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_RecalculateAndApplyTabColor()
     {
+        ASSERT_UI_THREAD();
+
         // GetTabColor will return the color set by the color picker, or the
         // color specified in the profile. If neither of those were set,
         // then look to _themeColor to see if there's a value there.
@@ -356,6 +374,8 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TabBase::_ApplyTabColorOnUIThread(const winrt::Windows::UI::Color& color)
     {
+        ASSERT_UI_THREAD();
+
         Media::SolidColorBrush selectedTabBrush{};
         Media::SolidColorBrush deselectedTabBrush{};
         Media::SolidColorBrush fontBrush{};

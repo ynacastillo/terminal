@@ -38,6 +38,8 @@ Pane::Pane(const Profile& profile, const TermControl& control, const bool lastFo
     _lastActive{ lastFocused },
     _profile{ profile }
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _root.Children().Append(_borderFirst);
     _borderFirst.Child(_control);
 
@@ -72,6 +74,8 @@ Pane::Pane(std::shared_ptr<Pane> first,
     _desiredSplitPosition{ splitPosition },
     _lastActive{ lastFocused }
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _CreateRowColDefinitions();
     _borderFirst.Child(_firstChild->GetRootElement());
     _borderSecond.Child(_secondChild->GetRootElement());
@@ -104,6 +108,8 @@ Pane::Pane(std::shared_ptr<Pane> first,
 
 void Pane::_setupControlEvents()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _controlEvents._ConnectionStateChanged = _control.ConnectionStateChanged(winrt::auto_revoke, { this, &Pane::_ControlConnectionStateChangedHandler });
     _controlEvents._WarningBell = _control.WarningBell(winrt::auto_revoke, { this, &Pane::_ControlWarningBellHandler });
     _controlEvents._CloseTerminalRequested = _control.CloseTerminalRequested(winrt::auto_revoke, { this, &Pane::_CloseTerminalRequestedHandler });
@@ -111,6 +117,8 @@ void Pane::_setupControlEvents()
 }
 void Pane::_removeControlEvents()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _controlEvents = {};
 }
 
@@ -125,6 +133,8 @@ void Pane::_removeControlEvents()
 // - Arguments appropriate for a SplitPane or NewTab action
 NewTerminalArgs Pane::GetTerminalArgsForPane(const bool asContent) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Leaves are the only things that have controls
     assert(_IsLeaf());
 
@@ -204,6 +214,8 @@ Pane::BuildStartupState Pane::BuildStartupActions(uint32_t currentId,
                                                   const bool asContent,
                                                   const bool asMovePane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Normally, if we're a leaf, return an empt set of actions, because the
     // parent pane will build the SplitPane action for us. If we're building
     // actions for a movePane action though, we'll still need to include
@@ -332,6 +344,8 @@ Pane::BuildStartupState Pane::BuildStartupActions(uint32_t currentId,
 // - false if we couldn't resize this pane in the given direction, else true.
 bool Pane::_Resize(const ResizeDirection& direction)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (!DirectionMatchesSplit(direction, _splitState))
     {
         return false;
@@ -373,6 +387,8 @@ bool Pane::_Resize(const ResizeDirection& direction)
 // - true if we or a child handled this resize request.
 bool Pane::ResizePane(const ResizeDirection& direction)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // If we're a leaf, do nothing. We can't possibly have a descendant with a
     // separator the correct direction.
     if (_IsLeaf())
@@ -429,6 +445,8 @@ bool Pane::ResizePane(const ResizeDirection& direction)
 //   nullptr (i.e. no pane was found in that direction).
 std::shared_ptr<Pane> Pane::NavigateDirection(const std::shared_ptr<Pane> sourcePane, const FocusDirection& direction, const std::vector<uint32_t>& mruPanes)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Can't navigate anywhere if we are a leaf
     if (_IsLeaf())
     {
@@ -544,6 +562,8 @@ std::shared_ptr<Pane> Pane::NavigateDirection(const std::shared_ptr<Pane> source
 // - The next pane in tree order after the target pane (if found)
 std::shared_ptr<Pane> Pane::NextPane(const std::shared_ptr<Pane> targetPane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // if we are a leaf pane there is no next pane.
     if (_IsLeaf())
     {
@@ -607,6 +627,8 @@ std::shared_ptr<Pane> Pane::NextPane(const std::shared_ptr<Pane> targetPane)
 // - The previous pane in tree order before the target pane (if found)
 std::shared_ptr<Pane> Pane::PreviousPane(const std::shared_ptr<Pane> targetPane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // if we are a leaf pane there is no previous pane.
     if (_IsLeaf())
     {
@@ -654,6 +676,8 @@ std::shared_ptr<Pane> Pane::PreviousPane(const std::shared_ptr<Pane> targetPane)
 // - the parent of `pane` if pane is in this tree.
 std::shared_ptr<Pane> Pane::_FindParentOfPane(const std::shared_ptr<Pane> pane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _FindPane([&](const auto& p) {
         return p->_firstChild == pane || p->_secondChild == pane;
     });
@@ -671,6 +695,8 @@ std::shared_ptr<Pane> Pane::_FindParentOfPane(const std::shared_ptr<Pane> pane)
 // - true if a swap was performed.
 bool Pane::SwapPanes(std::shared_ptr<Pane> first, std::shared_ptr<Pane> second)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // If there is nothing to swap, just return.
     if (first == second || _IsLeaf())
     {
@@ -810,6 +836,8 @@ bool Pane::_IsAdjacent(const PanePoint firstOffset,
                        const PanePoint secondOffset,
                        const FocusDirection& direction) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Since float equality is tricky (arithmetic is non-associative, commutative),
     // test if the two numbers are within an epsilon distance of each other.
     auto floatEqual = [](float left, float right) {
@@ -878,6 +906,8 @@ bool Pane::_IsAdjacent(const PanePoint firstOffset,
 // - the two location/scale points for the children panes.
 std::pair<Pane::PanePoint, Pane::PanePoint> Pane::_GetOffsetsForPane(const PanePoint parentOffset) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     assert(!_IsLeaf());
     auto firstOffset = parentOffset;
     auto secondOffset = parentOffset;
@@ -925,6 +955,8 @@ Pane::PaneNeighborSearch Pane::_FindNeighborForPane(const FocusDirection& direct
                                                     const bool sourceIsSecondSide,
                                                     const Pane::PanePoint offset)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Test if the move will go out of boundaries. E.g. if the focus is already
     // on the second child of some pane and it attempts to move right, there
     // can't possibly be a neighbor to be found in the first child.
@@ -966,6 +998,8 @@ Pane::PaneNeighborSearch Pane::_FindNeighborForPane(const FocusDirection& direct
 //   Otherwise, the neighbor will be null and the focus will be null/non-null if it was found.
 Pane::PaneNeighborSearch Pane::_FindPaneAndNeighbor(const std::shared_ptr<Pane> sourcePane, const FocusDirection& direction, const Pane::PanePoint offset)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // If we are the source pane, return ourselves
     if (this == sourcePane.get())
     {
@@ -1096,6 +1130,8 @@ winrt::fire_and_forget Pane::_ControlConnectionStateChangedHandler(const winrt::
 void Pane::_CloseTerminalRequestedHandler(const winrt::Windows::Foundation::IInspectable& /*sender*/,
                                           const winrt::Windows::Foundation::IInspectable& /*args*/)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // It's possible that this event handler started being executed, then before
     // we got the lock, another thread created another child. So our control is
     // actually no longer _our_ control, and instead could be a descendant.
@@ -1114,6 +1150,8 @@ void Pane::_CloseTerminalRequestedHandler(const winrt::Windows::Foundation::IIns
 void Pane::_RestartTerminalRequestedHandler(const winrt::Windows::Foundation::IInspectable& /*sender*/,
                                             const winrt::Windows::Foundation::IInspectable& /*args*/)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (!_IsLeaf())
     {
         return;
@@ -1123,6 +1161,8 @@ void Pane::_RestartTerminalRequestedHandler(const winrt::Windows::Foundation::II
 
 void Pane::_playBellSound(winrt::Windows::Foundation::Uri uri)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (!_bellPlayerCreated)
     {
         // The MediaPlayer might not exist on Windows N SKU.
@@ -1155,6 +1195,8 @@ void Pane::_playBellSound(winrt::Windows::Foundation::Uri uri)
 void Pane::_ControlWarningBellHandler(const winrt::Windows::Foundation::IInspectable& /*sender*/,
                                       const winrt::Windows::Foundation::IInspectable& /*eventArgs*/)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (!_IsLeaf())
     {
         return;
@@ -1203,6 +1245,8 @@ void Pane::_ControlWarningBellHandler(const winrt::Windows::Foundation::IInspect
 void Pane::_ControlGotFocusHandler(const winrt::Windows::Foundation::IInspectable& sender,
                                    const RoutedEventArgs& /* args */)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     auto f = FocusState::Programmatic;
     if (const auto o = sender.try_as<winrt::Windows::UI::Xaml::Controls::Control>())
     {
@@ -1218,6 +1262,8 @@ void Pane::_ControlGotFocusHandler(const winrt::Windows::Foundation::IInspectabl
 void Pane::_ControlLostFocusHandler(const winrt::Windows::Foundation::IInspectable& /* sender */,
                                     const RoutedEventArgs& /* args */)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _LostFocusHandlers(shared_from_this());
 }
 
@@ -1229,6 +1275,8 @@ void Pane::_ControlLostFocusHandler(const winrt::Windows::Foundation::IInspectab
 // - <none>
 void Pane::Close()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Fire our Closed event to tell our parent that we should be removed.
     _ClosedHandlers(nullptr, nullptr);
 }
@@ -1238,6 +1286,8 @@ void Pane::Close()
 //   and connections beneath it.
 void Pane::Shutdown()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Clear out our media player callbacks, and stop any playing media. This
     // will prevent the callback from being triggered after we've closed, and
     // also make sure that our sound stops when we're closed.
@@ -1270,6 +1320,8 @@ void Pane::Shutdown()
 // - the Grid acting as the root of this pane.
 Controls::Grid Pane::GetRootElement()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _root;
 }
 
@@ -1285,6 +1337,8 @@ Controls::Grid Pane::GetRootElement()
 //   `_lastActive`, else returns this
 std::shared_ptr<Pane> Pane::GetActivePane()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _FindPane([](const auto& p) { return p->_lastActive; });
 }
 
@@ -1298,6 +1352,8 @@ std::shared_ptr<Pane> Pane::GetActivePane()
 // - nullptr if this Pane is an unfocused parent, otherwise the TermControl of this Pane.
 TermControl Pane::GetLastFocusedTerminalControl()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (!_IsLeaf())
     {
         if (_lastActive)
@@ -1327,6 +1383,8 @@ TermControl Pane::GetLastFocusedTerminalControl()
 // - nullptr if this Pane is a parent, otherwise the TermControl of this Pane.
 TermControl Pane::GetTerminalControl()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _IsLeaf() ? _control : nullptr;
 }
 
@@ -1339,6 +1397,8 @@ TermControl Pane::GetTerminalControl()
 // - <none>
 void Pane::ClearActive()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _lastActive = false;
     if (!_IsLeaf())
     {
@@ -1358,6 +1418,8 @@ void Pane::ClearActive()
 // - <none>
 void Pane::SetActive()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _lastActive = true;
     UpdateVisuals();
 }
@@ -1373,6 +1435,8 @@ void Pane::SetActive()
 //   focused, else the profile of the last control to be focused
 Profile Pane::GetFocusedProfile()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     auto lastFocused = GetActivePane();
     return lastFocused ? lastFocused->_profile : nullptr;
 }
@@ -1385,6 +1449,8 @@ Profile Pane::GetFocusedProfile()
 // - true iff we were the last pane focused in this tree of panes.
 bool Pane::WasLastFocused() const noexcept
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _lastActive;
 }
 
@@ -1396,6 +1462,8 @@ bool Pane::WasLastFocused() const noexcept
 // - true iff this pane has no child panes.
 bool Pane::_IsLeaf() const noexcept
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _splitState == SplitState::None;
 }
 
@@ -1409,6 +1477,8 @@ bool Pane::_IsLeaf() const noexcept
 //   pane's descendants
 bool Pane::_HasFocusedChild() const noexcept
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // We're intentionally making this one giant expression, so the compiler
     // will skip the following lookups if one of the lookups before it returns
     // true
@@ -1426,6 +1496,8 @@ bool Pane::_HasFocusedChild() const noexcept
 // - <none>
 void Pane::UpdateVisuals()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // If we are the focused pane, but not a leaf we should add borders
     if (!_IsLeaf())
     {
@@ -1445,6 +1517,8 @@ void Pane::UpdateVisuals()
 // - <none>
 void Pane::_Focus()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _GotFocusHandlers(shared_from_this(), FocusState::Programmatic);
     if (const auto& control = GetLastFocusedTerminalControl())
     {
@@ -1461,6 +1535,8 @@ void Pane::_Focus()
 // - <none>
 void Pane::_FocusFirstChild()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_IsLeaf())
     {
         // Originally, we would only raise a GotFocus event here when:
@@ -1497,6 +1573,8 @@ void Pane::_FocusFirstChild()
 // - <none>
 void Pane::UpdateSettings(const TerminalSettingsCreateResult& settings, const Profile& profile)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     assert(_IsLeaf());
 
     _profile = profile;
@@ -1513,6 +1591,8 @@ void Pane::UpdateSettings(const TerminalSettingsCreateResult& settings, const Pr
 // - the new reference to the child created from the current pane.
 std::shared_ptr<Pane> Pane::AttachPane(std::shared_ptr<Pane> pane, SplitDirection splitType)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Splice the new pane into the tree
     const auto [first, _] = _Split(splitType, .5, pane);
 
@@ -1536,6 +1616,8 @@ std::shared_ptr<Pane> Pane::AttachPane(std::shared_ptr<Pane> pane, SplitDirectio
 // - The removed pane, if found.
 std::shared_ptr<Pane> Pane::DetachPane(std::shared_ptr<Pane> pane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // We can't remove a pane if we only have a reference to a leaf, even if we
     // are the pane.
     if (_IsLeaf())
@@ -1589,6 +1671,8 @@ std::shared_ptr<Pane> Pane::DetachPane(std::shared_ptr<Pane> pane)
 // - <none>
 void Pane::_CloseChild(const bool closeFirst, const bool isDetaching)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // If we're a leaf, then chances are both our children closed in close
     // succession. We waited on the lock while the other child was closed, so
     // now we don't have a child to close anymore. Return here. When we moved
@@ -1813,6 +1897,8 @@ void Pane::_CloseChild(const bool closeFirst, const bool isDetaching)
 
 void Pane::_CloseChildRoutine(const bool closeFirst)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // This will query if animations are enabled via the "Show animations in
     // Windows" setting in the OS
     winrt::Windows::UI::ViewManagement::UISettings uiSettings;
@@ -1943,6 +2029,8 @@ void Pane::_CloseChildRoutine(const bool closeFirst)
 // - <none>
 void Pane::_SetupChildCloseHandlers()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _firstClosedToken = _firstChild->Closed([this](auto&& /*s*/, auto&& /*e*/) {
         _CloseChildRoutine(true);
     });
@@ -1965,6 +2053,8 @@ void Pane::_SetupChildCloseHandlers()
 // - <none>
 void Pane::_CreateRowColDefinitions()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     const auto first = _desiredSplitPosition * 100.0f;
     const auto second = 100.0f - first;
     if (_splitState == SplitState::Vertical)
@@ -2007,6 +2097,8 @@ void Pane::_CreateRowColDefinitions()
 // - <none>
 void Pane::_UpdateBorders()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     double top = 0, bottom = 0, left = 0, right = 0;
 
     Thickness newBorders{ 0 };
@@ -2065,6 +2157,8 @@ void Pane::_UpdateBorders()
 // - <none>
 Borders Pane::_GetCommonBorders()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_IsLeaf())
     {
         return _borders;
@@ -2083,6 +2177,8 @@ Borders Pane::_GetCommonBorders()
 // - <none>
 void Pane::_ApplySplitDefinitions()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_splitState == SplitState::Vertical)
     {
         Controls::Grid::SetColumn(_borderFirst, 0);
@@ -2116,6 +2212,8 @@ void Pane::_ApplySplitDefinitions()
 //   have been set up.
 void Pane::_SetupEntranceAnimation()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // This will query if animations are enabled via the "Show animations in
     // Windows" setting in the OS
     winrt::Windows::UI::ViewManagement::UISettings uiSettings;
@@ -2295,6 +2393,8 @@ std::optional<std::optional<SplitDirection>> Pane::PreCalculateCanSplit(const st
                                                                         const float splitSize,
                                                                         const winrt::Windows::Foundation::Size availableSpace) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (target.get() == this)
     {
         const auto firstPercent = 1.0f - splitSize;
@@ -2373,6 +2473,8 @@ std::pair<std::shared_ptr<Pane>, std::shared_ptr<Pane>> Pane::Split(SplitDirecti
                                                                     const float splitSize,
                                                                     std::shared_ptr<Pane> newPane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (!_lastActive)
     {
         if (_firstChild && _firstChild->_HasFocusedChild())
@@ -2398,6 +2500,8 @@ std::pair<std::shared_ptr<Pane>, std::shared_ptr<Pane>> Pane::Split(SplitDirecti
 // - true if a split was changed
 bool Pane::ToggleSplitOrientation()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // If we are a leaf there is no split to toggle.
     if (_IsLeaf())
     {
@@ -2438,6 +2542,8 @@ bool Pane::ToggleSplitOrientation()
 // - One of Horizontal or Vertical
 SplitState Pane::_convertAutomaticOrDirectionalSplitState(const SplitDirection& splitType) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Careful here! If the pane doesn't yet have a size, these dimensions will
     // be 0, and we'll always return Vertical.
 
@@ -2470,6 +2576,8 @@ std::pair<std::shared_ptr<Pane>, std::shared_ptr<Pane>> Pane::_Split(SplitDirect
                                                                      const float splitSize,
                                                                      std::shared_ptr<Pane> newPane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     auto actualSplitType = _convertAutomaticOrDirectionalSplitState(splitType);
 
     if (_IsLeaf())
@@ -2564,6 +2672,8 @@ std::pair<std::shared_ptr<Pane>, std::shared_ptr<Pane>> Pane::_Split(SplitDirect
 // - <none>
 void Pane::Maximize(std::shared_ptr<Pane> zoomedPane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _zoomed = (zoomedPane == shared_from_this());
     _UpdateBorders();
     if (!_IsLeaf())
@@ -2598,6 +2708,8 @@ void Pane::Maximize(std::shared_ptr<Pane> zoomedPane)
 // - <none>
 void Pane::Restore(std::shared_ptr<Pane> zoomedPane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _zoomed = false;
     _UpdateBorders();
     if (!_IsLeaf())
@@ -2630,6 +2742,8 @@ void Pane::Restore(std::shared_ptr<Pane> zoomedPane)
 // - The ID of this pane
 std::optional<uint32_t> Pane::Id() noexcept
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _id;
 }
 
@@ -2640,6 +2754,8 @@ std::optional<uint32_t> Pane::Id() noexcept
 // - The number to set this pane's ID to
 void Pane::Id(uint32_t id) noexcept
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _id = id;
 }
 
@@ -2649,6 +2765,8 @@ void Pane::Id(uint32_t id) noexcept
 // - The ID of the pane we want to focus
 bool Pane::FocusPane(const uint32_t id)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     // Always clear the parent child path if we are focusing a leaf
     return WalkTree([=](auto p) {
         p->_parentChildPath.reset();
@@ -2673,6 +2791,8 @@ bool Pane::FocusPane(const uint32_t id)
 // - true if focus was set
 bool Pane::FocusPane(const std::shared_ptr<Pane> pane)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return WalkTree([&](auto p) {
         if (p == pane)
         {
@@ -2693,6 +2813,8 @@ bool Pane::FocusPane(const std::shared_ptr<Pane> pane)
 // - true if the child was found.
 bool Pane::_HasChild(const std::shared_ptr<Pane> child)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (child == nullptr)
     {
         return false;
@@ -2711,6 +2833,8 @@ bool Pane::_HasChild(const std::shared_ptr<Pane> child)
 // - A pointer to the pane with the given ID, if found.
 std::shared_ptr<Pane> Pane::FindPane(const uint32_t id)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _FindPane([=](const auto& p) { return p->_IsLeaf() && p->_id == id; });
 }
 
@@ -2728,6 +2852,8 @@ std::shared_ptr<Pane> Pane::FindPane(const uint32_t id)
 //   respectively.
 std::pair<float, float> Pane::_CalcChildrenSizes(const float fullSize) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     const auto widthOrHeight = _splitState == SplitState::Vertical;
     const auto snappedSizes = _CalcSnappedChildrenSizes(widthOrHeight, fullSize).lower;
 
@@ -2757,6 +2883,8 @@ std::pair<float, float> Pane::_CalcChildrenSizes(const float fullSize) const
 //   the fullSize, then both this fields have the same value that represent this situation.
 Pane::SnapChildrenSizeResult Pane::_CalcSnappedChildrenSizes(const bool widthOrHeight, const float fullSize) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_IsLeaf())
     {
         THROW_HR(E_FAIL);
@@ -2814,6 +2942,8 @@ Pane::SnapChildrenSizeResult Pane::_CalcSnappedChildrenSizes(const bool widthOrH
 // - A value corresponding to the next closest snap size for this Pane, either upward or downward
 float Pane::CalcSnappedDimension(const bool widthOrHeight, const float dimension) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     const auto [lower, higher] = _CalcSnappedDimension(widthOrHeight, dimension);
     return dimension - lower < higher - dimension ? lower : higher;
 }
@@ -2831,6 +2961,8 @@ float Pane::CalcSnappedDimension(const bool widthOrHeight, const float dimension
 //   If requested size is already snapped, then both returned values equal this value.
 Pane::SnapSizeResult Pane::_CalcSnappedDimension(const bool widthOrHeight, const float dimension) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_IsLeaf())
     {
         // If we're a leaf pane, align to the grid of controlling terminal
@@ -2908,6 +3040,8 @@ Pane::SnapSizeResult Pane::_CalcSnappedDimension(const bool widthOrHeight, const
 // - <none>
 void Pane::_AdvanceSnappedDimension(const bool widthOrHeight, LayoutSizeNode& sizeNode) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_IsLeaf())
     {
         // We're a leaf pane, so just add one more row or column (unless isMinimumSize
@@ -3027,6 +3161,8 @@ void Pane::_AdvanceSnappedDimension(const bool widthOrHeight, LayoutSizeNode& si
 //   character.
 Size Pane::_GetMinSize() const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_IsLeaf())
     {
         auto controlSize = _control.MinimumSize();
@@ -3065,6 +3201,8 @@ Size Pane::_GetMinSize() const
 // - Root node of built tree that matches this pane.
 Pane::LayoutSizeNode Pane::_CreateMinSizeTree(const bool widthOrHeight) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     const auto size = _GetMinSize();
     LayoutSizeNode node(widthOrHeight ? size.Width : size.Height);
     if (!_IsLeaf())
@@ -3087,6 +3225,8 @@ Pane::LayoutSizeNode Pane::_CreateMinSizeTree(const bool widthOrHeight) const
 // - split position (value in range <0.0, 1.0>)
 float Pane::_ClampSplitPosition(const bool widthOrHeight, const float requestedValue, const float totalSize) const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     const auto firstMinSize = _firstChild->_GetMinSize();
     const auto secondMinSize = _secondChild->_GetMinSize();
 
@@ -3106,6 +3246,8 @@ float Pane::_ClampSplitPosition(const bool widthOrHeight, const float requestedV
 //   we're just storing a smart pointer to the page's brushes.
 void Pane::UpdateResources(const PaneResources& resources)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _themeResources = resources;
     UpdateVisuals();
 
@@ -3118,6 +3260,8 @@ void Pane::UpdateResources(const PaneResources& resources)
 
 int Pane::GetLeafPaneCount() const noexcept
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _IsLeaf() ? 1 : (_firstChild->GetLeafPaneCount() + _secondChild->GetLeafPaneCount());
 }
 
@@ -3127,6 +3271,8 @@ int Pane::GetLeafPaneCount() const noexcept
 //   created via default handoff
 void Pane::FinalizeConfigurationGivenDefault()
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     _isDefTermSession = true;
 }
 
@@ -3134,6 +3280,8 @@ void Pane::FinalizeConfigurationGivenDefault()
 // - Returns true if the pane or one of its descendants is read-only
 bool Pane::ContainsReadOnly() const
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     return _IsLeaf() ? _control.ReadOnly() : (_firstChild->ContainsReadOnly() || _secondChild->ContainsReadOnly());
 }
 
@@ -3147,6 +3295,8 @@ bool Pane::ContainsReadOnly() const
 // - <none>
 void Pane::CollectTaskbarStates(std::vector<winrt::TerminalApp::TaskbarState>& states)
 {
+    assert(_root.Dispatcher().HasThreadAccess());
+
     if (_IsLeaf())
     {
         auto tbState{ winrt::make<winrt::TerminalApp::implementation::TaskbarState>(_control.TaskbarState(),
