@@ -277,6 +277,12 @@ namespace til
             tmp += off;
             return tmp;
         }
+        
+        [[nodiscard]] friend constexpr small_vector_iterator operator+(const difference_type off, small_vector_iterator next) noexcept
+        {
+            next += off;
+            return next;
+        }
 
         constexpr small_vector_iterator& operator-=(const difference_type off) noexcept
         {

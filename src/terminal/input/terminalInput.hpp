@@ -13,8 +13,6 @@ Author(s):
 - Michael Niksa (MiNiksa) 30-Oct-2015
 --*/
 
-#include <functional>
-#include "../../types/inc/IInputEvent.hpp"
 #pragma once
 
 namespace Microsoft::Console::VirtualTerminal
@@ -22,19 +20,25 @@ namespace Microsoft::Console::VirtualTerminal
     class TerminalInput final
     {
     public:
-        TerminalInput(_In_ std::function<void(std::deque<std::unique_ptr<IInputEvent>>&)> pfn);
+        // We use a plain array instead of std::wstring because std::wstring can only hold 7
+        // characters before heap allocating, but HandleKey() almost always ends up returning
+        // >7 chars with Win32 mode enabled. It certainly makes no difference, but it's neat.
+        //
+        // Also, fast-ass HSTRINGs are annoying and must be null terminated.
+        // The caller can do that if they have to... -.-
+        using StringType = fmt::basic_memory_buffer<wchar_t, 64>;
+        using OutputType = std::optional<StringType>;
 
-        TerminalInput() = delete;
-        TerminalInput(const TerminalInput& old) = default;
-        TerminalInput(TerminalInput&& moved) = default;
+        struct MouseButtonState
+        {
+            bool isLeftButtonDown;
+            bool isMiddleButtonDown;
+            bool isRightButtonDown;
+        };
 
-        TerminalInput& operator=(const TerminalInput& old) = default;
-        TerminalInput& operator=(TerminalInput&& moved) = default;
-
-        ~TerminalInput() = default;
-
-        bool HandleKey(const IInputEvent* const pInEvent);
-        bool HandleFocus(const bool focused) noexcept;
+        [[nodiscard]] OutputType HandleKey(const INPUT_RECORD& pInEvent);
+        [[nodiscard]] OutputType HandleFocus(bool focused) const noexcept;
+        [[nodiscard]] OutputType HandleMouse(til::point position, unsigned int button, short modifierKeyState, short delta, MouseButtonState state) noexcept;
 
         enum class Mode : size_t
         {
@@ -58,29 +62,16 @@ namespace Microsoft::Console::VirtualTerminal
             AlternateScroll
         };
 
-        void SetInputMode(const Mode mode, const bool enabled) noexcept;
-        bool GetInputMode(const Mode mode) const noexcept;
+        void SetInputMode(Mode mode, bool enabled) noexcept;
+        bool GetInputMode(Mode mode) const noexcept;
         void ResetInputModes() noexcept;
-        void ForceDisableWin32InputMode(const bool win32InputMode) noexcept;
+        void ForceDisableWin32InputMode(bool win32InputMode) noexcept;
 
 #pragma region MouseInput
         // These methods are defined in mouseInput.cpp
 
-        struct MouseButtonState
-        {
-            bool isLeftButtonDown;
-            bool isMiddleButtonDown;
-            bool isRightButtonDown;
-        };
-
-        bool HandleMouse(const til::point position,
-                         const unsigned int button,
-                         const short modifierKeyState,
-                         const short delta,
-                         const MouseButtonState state);
-
         bool IsTrackingMouseInput() const noexcept;
-        bool ShouldSendAlternateScroll(const unsigned int button, const short delta) const noexcept;
+        bool ShouldSendAlternateScroll(unsigned int button, short delta) const noexcept;
 #pragma endregion
 
 #pragma region MouseInputState Management
@@ -90,8 +81,6 @@ namespace Microsoft::Console::VirtualTerminal
 #pragma endregion
 
     private:
-        std::function<void(std::deque<std::unique_ptr<IInputEvent>>&)> _pfnWriteEvents;
-
         // storage location for the leading surrogate of a utf-16 surrogate pair
         std::optional<wchar_t> _leadingSurrogate;
 
@@ -100,11 +89,11 @@ namespace Microsoft::Console::VirtualTerminal
         til::enumset<Mode> _inputMode{ Mode::Ansi, Mode::AutoRepeat };
         bool _forceDisableWin32InputMode{ false };
 
-        void _SendChar(const wchar_t ch);
-        void _SendNullInputSequence(const DWORD dwControlKeyState) const;
-        void _SendInputSequence(const std::wstring_view sequence) const noexcept;
-        void _SendEscapedInputSequence(const wchar_t wch) const;
-        static std::wstring _GenerateWin32KeySequence(const KeyEvent& key);
+        [[nodiscard]] OutputType _SendChar(wchar_t ch) noexcept;
+        static [[nodiscard]] OutputType _SendInputSequence(const std::wstring_view& sequence) noexcept;
+        static [[nodiscard]] OutputType _SendEscapedInputSequence(wchar_t wch) noexcept;
+        static [[nodiscard]] OutputType _GenerateWin32KeySequence(const KEY_EVENT_RECORD& key) noexcept;
+        static [[nodiscard]] OutputType _searchWithModifier(const KEY_EVENT_RECORD& keyEvent) noexcept;
 
 #pragma region MouseInputState Management
         // These methods are defined in mouseInputState.cpp
@@ -120,26 +109,13 @@ namespace Microsoft::Console::VirtualTerminal
 #pragma endregion
 
 #pragma region MouseInput
-        static std::wstring _GenerateDefaultSequence(const til::point position,
-                                                     const unsigned int button,
-                                                     const bool isHover,
-                                                     const short modifierKeyState,
-                                                     const short delta);
-        static std::wstring _GenerateUtf8Sequence(const til::point position,
-                                                  const unsigned int button,
-                                                  const bool isHover,
-                                                  const short modifierKeyState,
-                                                  const short delta);
-        static std::wstring _GenerateSGRSequence(const til::point position,
-                                                 const unsigned int button,
-                                                 const bool isDown,
-                                                 const bool isHover,
-                                                 const short modifierKeyState,
-                                                 const short delta);
+        static [[nodiscard]] OutputType _GenerateDefaultSequence(til::point position, unsigned int button, bool isHover, short modifierKeyState, short delta);
+        static [[nodiscard]] OutputType _GenerateUtf8Sequence(til::point position, unsigned int button, bool isHover, short modifierKeyState, short delta);
+        static [[nodiscard]] OutputType _GenerateSGRSequence(til::point position, unsigned int button, bool isDown, bool isHover, short modifierKeyState, short delta);
 
-        bool _SendAlternateScroll(const short delta) const noexcept;
+        [[nodiscard]] OutputType _SendAlternateScroll(short delta) const noexcept;
 
-        static constexpr unsigned int s_GetPressedButton(const MouseButtonState state) noexcept;
+        static constexpr unsigned int s_GetPressedButton(MouseButtonState state) noexcept;
 #pragma endregion
     };
 }

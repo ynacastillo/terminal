@@ -60,6 +60,22 @@ class Microsoft::Terminal::Core::Terminal final :
     using RenderSettings = Microsoft::Console::Render::RenderSettings;
 
 public:
+    static constexpr bool IsInputKey(WORD vkey)
+    {
+        return vkey != VK_CONTROL &&
+               vkey != VK_LCONTROL &&
+               vkey != VK_RCONTROL &&
+               vkey != VK_MENU &&
+               vkey != VK_LMENU &&
+               vkey != VK_RMENU &&
+               vkey != VK_SHIFT &&
+               vkey != VK_LSHIFT &&
+               vkey != VK_RSHIFT &&
+               vkey != VK_LWIN &&
+               vkey != VK_RWIN &&
+               vkey != VK_SNAPSHOT;
+    }
+
     Terminal();
 
     void Create(til::size viewportSize,
@@ -309,7 +325,7 @@ private:
 
     RenderSettings _renderSettings;
     std::unique_ptr<::Microsoft::Console::VirtualTerminal::StateMachine> _stateMachine;
-    std::unique_ptr<::Microsoft::Console::VirtualTerminal::TerminalInput> _terminalInput;
+    ::Microsoft::Console::VirtualTerminal::TerminalInput _terminalInput;
 
     std::optional<std::wstring> _title;
     std::wstring _startingTitle;
@@ -408,6 +424,7 @@ private:
     static WORD _VirtualKeyFromCharacter(const wchar_t ch) noexcept;
     static wchar_t _CharacterFromKeyEvent(const WORD vkey, const WORD scanCode, const ControlKeyStates states) noexcept;
 
+    [[maybe_unused]] bool _handleTerminalInputResult(::Microsoft::Console::VirtualTerminal::TerminalInput::OutputType&& out) const;
     void _StoreKeyEvent(const WORD vkey, const WORD scanCode) noexcept;
     WORD _TakeVirtualKeyFromLastKeyEvent(const WORD scanCode) noexcept;
 

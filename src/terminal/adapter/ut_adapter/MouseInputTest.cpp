@@ -25,7 +25,7 @@ using namespace Microsoft::Console::VirtualTerminal;
 
 // For magic reasons, this has to live outside the class. Something wonderful about TAEF macros makes it
 // invisible to the linker when inside the class.
-static const wchar_t* s_pwszInputExpected;
+static std::wstring_view s_pwszInputExpected;
 
 static wchar_t s_pwszExpectedBuffer[BYTE_MAX]; // big enough for anything
 
@@ -85,24 +85,9 @@ class MouseInputTest
 public:
     TEST_CLASS(MouseInputTest);
 
-    static void s_MouseInputTestCallback(_Inout_ std::deque<std::unique_ptr<IInputEvent>>& events)
+    static void s_MouseInputTestCallback(_Inout_ const std::wstring_view& events)
     {
-        Log::Comment(L"MouseInput successfully generated a sequence for the input, and sent it.");
-
-        size_t cInputExpected = 0;
-        VERIFY_SUCCEEDED(StringCchLengthW(s_pwszInputExpected, STRSAFE_MAX_CCH, &cInputExpected));
-
-        if (VERIFY_ARE_EQUAL(cInputExpected, events.size(), L"Verify expected and actual input array lengths matched."))
-        {
-            Log::Comment(L"We are expecting always key events and always key down. All other properties should not be written by simulated keys.");
-
-            for (size_t i = 0; i < events.size(); ++i)
-            {
-                KeyEvent expectedKeyEvent(TRUE, 1, 0, 0, s_pwszInputExpected[i], 0);
-                auto testKeyEvent = *static_cast<const KeyEvent* const>(events[i].get());
-                VERIFY_ARE_EQUAL(expectedKeyEvent, testKeyEvent, NoThrowString().Format(L"Chars='%c','%c'", s_pwszInputExpected[i], testKeyEvent.GetCharData()));
-            }
-        }
+        VERIFY_ARE_EQUAL(s_pwszInputExpected, events);
     }
 
     void ClearTestBuffer()

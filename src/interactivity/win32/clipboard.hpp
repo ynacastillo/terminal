@@ -35,7 +35,7 @@ namespace Microsoft::Console::Interactivity::Win32
         void Paste();
 
     private:
-        std::deque<std::unique_ptr<IInputEvent>> TextToKeyEvents(_In_reads_(cchData) const wchar_t* const pData,
+        InputEventQueue TextToKeyEvents(_In_reads_(cchData) const wchar_t* const pData,
                                                                  const size_t cchData,
                                                                  const bool bracketedPaste = false);
 
