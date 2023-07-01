@@ -35,6 +35,9 @@
 #include <dwrite_2.h>
 #include <dwrite_3.h>
 
+#include <wrl/client.h>
+#include <wrl/implements.h>
+
 // Re-include TIL at the bottom to gain DX superpowers.
 #include "til.h"
 

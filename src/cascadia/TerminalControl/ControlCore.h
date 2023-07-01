@@ -65,6 +65,9 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         bool Initialize(const float actualWidth,
                         const float actualHeight,
                         const float compositionScale);
+        bool InitializeWithHwnd(const float actualWidth,
+                        const float actualHeight,
+                        const float compositionScale, const uint64_t hwnd);
         void EnablePainting();
 
         void Detach();
@@ -354,7 +357,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
 #pragma region RendererCallbacks
         void _rendererWarning(const HRESULT hr);
-        winrt::fire_and_forget _renderEngineSwapChainChanged(const HANDLE handle);
+        void _renderEngineSwapChainChanged(const HANDLE handle);
         void _rendererBackgroundColorChanged();
         void _rendererTabColorChanged();
 #pragma endregion

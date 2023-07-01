@@ -75,6 +75,7 @@
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="FlatC.cpp" />
     <ClCompile Include="ControlCore.cpp">
       <DependentUpon>ControlCore.idl</DependentUpon>
     </ClCompile>
@@ -172,6 +173,7 @@
       <CopyLocalSatelliteAssemblies>false</CopyLocalSatelliteAssemblies>
     </ProjectReference>
     <ProjectReference Include="$(OpenConsoleDir)src\cascadia\WinRTUtils\WinRTUtils.vcxproj">
+	    <Private>true</Private>
       <Project>{CA5CAD1A-039A-4929-BA2A-8BEB2E4106FE}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

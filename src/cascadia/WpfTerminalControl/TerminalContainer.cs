@@ -34,7 +34,6 @@ namespace Microsoft.Terminal.Wpf
         public TerminalContainer()
         {
             this.MessageHook += this.TerminalContainer_MessageHook;
-            this.GotFocus += this.TerminalContainer_GotFocus;
             this.Focusable = true;
 
             var blinkTime = NativeMethods.GetCaretBlinkTime();
@@ -346,12 +345,6 @@ namespace Microsoft.Terminal.Wpf
             character = (char)vKey;
         }
 
-        private void TerminalContainer_GotFocus(object sender, RoutedEventArgs e)
-        {
-            e.Handled = true;
-            NativeMethods.SetFocus(this.hwnd);
-        }
-
         private IntPtr TerminalContainer_MessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             if (hwnd == this.hwnd)
@@ -359,13 +352,10 @@ namespace Microsoft.Terminal.Wpf
                 switch ((NativeMethods.WindowMessage)msg)
                 {
                     case NativeMethods.WindowMessage.WM_SETFOCUS:
-                        NativeMethods.TerminalSetFocus(this.terminal);
                         this.blinkTimer?.Start();
                         break;
                     case NativeMethods.WindowMessage.WM_KILLFOCUS:
-                        NativeMethods.TerminalKillFocus(this.terminal);
                         this.blinkTimer?.Stop();
-                        NativeMethods.TerminalSetCursorVisible(this.terminal, false);
                         break;
                     case NativeMethods.WindowMessage.WM_MOUSEACTIVATE:
                         this.Focus();
@@ -432,43 +422,14 @@ namespace Microsoft.Terminal.Wpf
                         this.Connection?.Resize((uint)dimensions.Y, (uint)dimensions.X);
                         break;
 
-                    case NativeMethods.WindowMessage.WM_MOUSEWHEEL:
-                        var delta = (short)(((long)wParam) >> 16);
-                        this.UserScrolled?.Invoke(this, delta);
-                        break;
+                    //case NativeMethods.WindowMessage.WM_MOUSEWHEEL:
+                        //var delta = (short)(((long)wParam) >> 16);
+                        //this.UserScrolled?.Invoke(this, delta);
+                        //break;
                 }
             }
 
             return IntPtr.Zero;
-        }
-
-        private void LeftClickHandler(int lParam)
-        {
-            var altPressed = NativeMethods.GetKeyState((int)NativeMethods.VirtualKey.VK_MENU) < 0;
-            var x = lParam & 0xffff;
-            var y = lParam >> 16;
-            var cursorPosition = new NativeMethods.TilPoint
-            {
-                X = x,
-                Y = y,
-            };
-
-            NativeMethods.TerminalStartSelection(this.terminal, cursorPosition, altPressed);
-        }
-
-        private void MouseMoveHandler(int wParam, int lParam)
-        {
-            if ((wParam & 0x0001) == 1)
-            {
-                var x = lParam & 0xffff;
-                var y = lParam >> 16;
-                var cursorPosition = new NativeMethods.TilPoint
-                {
-                    X = x,
-                    Y = y,
-                };
-                NativeMethods.TerminalMoveSelection(this.terminal, cursorPosition);
-            }
         }
 
         private void Connection_TerminalOutput(object sender, TerminalOutputEventArgs e)

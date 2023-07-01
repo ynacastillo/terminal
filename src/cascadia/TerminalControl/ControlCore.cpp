@@ -148,6 +148,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
     void ControlCore::_setupDispatcherAndCallbacks()
     {
+        /* TODO(DH) */ return;
         // Get our dispatcher. If we're hosted in-proc with XAML, this will get
         // us the same dispatcher as TermControl::Dispatcher(). If we're out of
         // proc, this'll return null. We'll need to instead make a new
@@ -407,6 +408,20 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         _connection.Start();
 
         return true;
+    }
+
+    bool ControlCore::InitializeWithHwnd(const float actualWidth,
+                                         const float actualHeight,
+                                         const float compositionScale,
+                                         const uint64_t hwnd)
+    {
+        auto i = Initialize(actualWidth, actualHeight, compositionScale);
+        if (i)
+        {
+            auto lock = _terminal->LockForWriting();
+            (void)_renderEngine->SetHwnd(reinterpret_cast<HWND>(hwnd));
+        }
+        return i;
     }
 
     // Method Description:
@@ -1595,7 +1610,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         _RendererWarningHandlers(*this, winrt::make<RendererWarningArgs>(hr));
     }
 
-    winrt::fire_and_forget ControlCore::_renderEngineSwapChainChanged(const HANDLE sourceHandle)
+    /* TODO(DH) */ void ControlCore::_renderEngineSwapChainChanged(const HANDLE sourceHandle)
     {
         // `sourceHandle` is a weak ref to a HANDLE that's ultimately owned by the
         // render engine's own unique_handle. We'll add another ref to it here.
@@ -1613,7 +1628,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
         // Concurrent read of _dispatcher is safe, because Detach() calls WaitForPaintCompletionAndDisable()
         // which blocks until this call returns. _dispatcher will only be changed afterwards.
-        co_await wil::resume_foreground(_dispatcher);
+        // TODO(DH) co_await wil::resume_foreground(_dispatcher);
 
         if (auto core{ weakThis.get() })
         {

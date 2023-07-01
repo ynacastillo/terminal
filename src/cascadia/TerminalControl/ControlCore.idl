@@ -67,6 +67,9 @@ namespace Microsoft.Terminal.Control
         Boolean Initialize(Single actualWidth,
                            Single actualHeight,
                            Single compositionScale);
+        Boolean InitializeWithHwnd(Single actualWidth,
+                           Single actualHeight,
+                           Single compositionScale, UInt64 hwnd);
 
         void UpdateSettings(IControlSettings settings, IControlAppearance appearance);
         void ApplyAppearance(Boolean focused);
