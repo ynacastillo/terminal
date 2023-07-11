@@ -14,16 +14,41 @@
 // WS_OVERLAPPEDWINDOW without WS_THICKFRAME, which disables resize by the user.
 static constexpr DWORD windowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
 
-static bool g_firstPaint = true;
 static std::vector<CHAR_INFO> g_charInfoBuffer;
+static wil::unique_hfont g_font;
+static RECT g_windowRect;
+static SIZE g_cellSize;
+static WORD g_dpi;
 
 LRESULT WndProc(HWND hwnd, UINT message, size_t wParam, LPARAM lParam)
 {
     switch (message)
     {
-    case WM_TIMER:
+    case WM_DPICHANGED:
     {
+        g_dpi = HIWORD(wParam);
+        const LOGFONTW lf{
+            .lfHeight = -MulDiv(10, g_dpi, 72),
+            .lfWeight = FW_REGULAR,
+            .lfCharSet = DEFAULT_CHARSET,
+            .lfQuality = PROOF_QUALITY,
+            .lfPitchAndFamily = FIXED_PITCH | FF_MODERN,
+            .lfFaceName = L"Consolas",
+        };
+        g_font = wil::unique_hfont{ CreateFontIndirectW(&lf) };
+        g_cellSize = {};
+        return 0;
+    }
+    case WM_PAINT:
+    {
+        const auto dc = wil::BeginPaint(hwnd);
         const auto out = GetStdHandle(STD_OUTPUT_HANDLE);
+        const auto restoreFont = wil::SelectObject(dc.get(), g_font.get());
+        
+        if (g_cellSize.cx == 0 && g_cellSize.cy == 0)
+        {
+            GetTextExtentPoint32W(dc.get(), L"0", 1, &g_cellSize);
+        }
 
         CONSOLE_SCREEN_BUFFER_INFOEX info{ .cbSize = sizeof(info) };
         if (!GetConsoleScreenBufferInfoEx(out, &info))
@@ -33,6 +58,8 @@ LRESULT WndProc(HWND hwnd, UINT message, size_t wParam, LPARAM lParam)
         }
 
         auto bufferSize = info.dwSize;
+        // Add some extra just in case the window is being resized in
+        // between GetConsoleScreenBufferInfoEx and ReadConsoleOutputW.
         bufferSize.X += 10;
         bufferSize.Y += 10;
 
@@ -52,25 +79,13 @@ LRESULT WndProc(HWND hwnd, UINT message, size_t wParam, LPARAM lParam)
         readSize.X = readArea.Right + 1;
         readSize.Y = readArea.Bottom + 1;
 
-        const auto dc = wil::GetDC(hwnd);
-        const auto dpi = GetDpiForWindow(hwnd);
-
-        const LOGFONTW lf{
-            .lfHeight = -MulDiv(10, dpi, 72),
-            .lfWeight = FW_REGULAR,
-            .lfCharSet = DEFAULT_CHARSET,
-            .lfQuality = PROOF_QUALITY,
-            .lfPitchAndFamily = FIXED_PITCH | FF_MODERN,
-        };
-        const wil::unique_hfont font{ CreateFontIndirectW(&lf) };
-        const auto restoreFont = wil::SelectObject(dc.get(), font.get());
-
-        SIZE cellSize;
-        GetTextExtentPoint32W(dc.get(), L"0", 1, &cellSize);
-
-        RECT windowRect{ 0, 0, cellSize.cx * readSize.X, cellSize.cy * readSize.Y };
-        AdjustWindowRectExForDpi(&windowRect, windowStyle, FALSE, 0, dpi);
-        SetWindowPos(hwnd, nullptr, 0, 0, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+        RECT windowRect{ 0, 0, g_cellSize.cx * readSize.X, g_cellSize.cy * readSize.Y };
+        if (!EqualRect(&g_windowRect, &windowRect))
+        {
+            AdjustWindowRectExForDpi(&windowRect, windowStyle, FALSE, 0, g_dpi);
+            SetWindowPos(hwnd, nullptr, 0, 0, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+            g_windowRect = windowRect;
+        }
 
         COLORREF lastFG = 0xffffffff;
         COLORREF lastBG = 0xffffffff;
@@ -95,23 +110,26 @@ LRESULT WndProc(HWND hwnd, UINT message, size_t wParam, LPARAM lParam)
                 }
 
                 RECT r;
-                r.left = cellSize.cx * x;
-                r.top = cellSize.cy * y;
-                r.right = r.left + cellSize.cx;
-                r.bottom = r.top + cellSize.cy;
+                r.left = g_cellSize.cx * x;
+                r.top = g_cellSize.cy * y;
+                r.right = r.left + g_cellSize.cx;
+                r.bottom = r.top + g_cellSize.cy;
 
                 ExtTextOutW(dc.get(), r.left, r.top, ETO_CLIPPED, &r, &ci.Char.UnicodeChar, 1, nullptr);
             }
         }
 
-        if (g_firstPaint)
-        {
-            g_firstPaint = false;
-            ShowWindow(hwnd, SW_SHOWNORMAL);
-        }
-
+        RECT cursorRect;
+        cursorRect.left = info.dwCursorPosition.X * g_cellSize.cx;
+        cursorRect.top = info.dwCursorPosition.Y * g_cellSize.cy;
+        cursorRect.right = cursorRect.left + g_dpi / 96;
+        cursorRect.bottom = cursorRect.top + g_cellSize.cy;
+        FillRect(dc.get(), &cursorRect, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
         return 0;
     }
+    case WM_TIMER:
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -154,6 +172,7 @@ static void winMainImpl(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstan
             nullptr))
     };
 
+    ShowWindow(hwnd.get(), SW_SHOWNORMAL);
     SetTimer(hwnd.get(), 0, 100, nullptr);
 
     MSG msg;
@@ -166,8 +185,6 @@ static void winMainImpl(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstan
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nShowCmd)
 {
-    wil::WaitForDebuggerPresent(false);
-
     try
     {
         winMainImpl(hInstance, hPrevInstance, lpCmdLine, nShowCmd);
