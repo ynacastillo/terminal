@@ -6,8 +6,7 @@
 #include "../../inc/consoletaeftemplates.hpp"
 
 #include "CommonState.hpp"
-
-#include "search.h"
+#include "history.h"
 
 using namespace WEX::Common;
 using namespace WEX::Logging;
@@ -92,7 +91,7 @@ class HistoryTests
             VERIFY_SUCCEEDED(history->Add(_manyHistoryItems[i], false));
         }
 
-        VERIFY_ARE_EQUAL(s_BufferSize, history->GetNumberOfCommands(), L"Ensure that it is filled.");
+        VERIFY_ARE_EQUAL(static_cast<int>(s_BufferSize), history->GetNumberOfCommands(), L"Ensure that it is filled.");
 
         Log::Comment(L"Free it and recreate it with the same name.");
         CommandHistory::s_Free(h);
@@ -101,7 +100,7 @@ class HistoryTests
         history = CommandHistory::s_Allocate(_manyApps[0], _MakeHandle(14));
         VERIFY_IS_NOT_NULL(history);
 
-        VERIFY_ARE_EQUAL(s_BufferSize, history->GetNumberOfCommands(), L"Ensure that we still have full commands after freeing and reallocating, same app name, different handle ID");
+        VERIFY_ARE_EQUAL(static_cast<int>(s_BufferSize), history->GetNumberOfCommands(), L"Ensure that we still have full commands after freeing and reallocating, same app name, different handle ID");
     }
 
     TEST_METHOD(TooManyAppsDoesNotTakeList)
@@ -115,7 +114,7 @@ class HistoryTests
             {
                 VERIFY_SUCCEEDED(history->Add(_manyHistoryItems[j], false));
             }
-            VERIFY_ARE_EQUAL(s_BufferSize, history->GetNumberOfCommands());
+            VERIFY_ARE_EQUAL(static_cast<int>(s_BufferSize), history->GetNumberOfCommands());
         }
         VERIFY_ARE_EQUAL(s_NumberOfBuffers, CommandHistory::s_historyLists.size());
 
@@ -141,19 +140,19 @@ class HistoryTests
         {
             VERIFY_SUCCEEDED(history->Add(_manyHistoryItems[j], false));
         }
-        VERIFY_ARE_EQUAL(s_BufferSize, history->GetNumberOfCommands());
+        VERIFY_ARE_EQUAL(static_cast<int>(s_BufferSize), history->GetNumberOfCommands());
 
         Log::Comment(L"Retrieve items/order.");
         std::vector<std::wstring> commandsStored;
-        for (CommandHistory::Index i = 0; i < history->GetNumberOfCommands(); i++)
+        for (SHORT i = 0; i < static_cast<SHORT>(history->GetNumberOfCommands()); i++)
         {
             commandsStored.emplace_back(history->GetNth(i));
         }
 
         Log::Comment(L"Reallocate larger and ensure items and order are preserved.");
         history->Realloc((CommandHistory::Index)_manyHistoryItems.size());
-        VERIFY_ARE_EQUAL(s_BufferSize, history->GetNumberOfCommands());
-        for (CommandHistory::Index i = 0; i < (CommandHistory::Index)commandsStored.size(); i++)
+        VERIFY_ARE_EQUAL(static_cast<int>(s_BufferSize), history->GetNumberOfCommands());
+        for (SHORT i = 0; i < static_cast<SHORT>(commandsStored.size()); i++)
         {
             VERIFY_ARE_EQUAL(String(commandsStored[i].data()), String(history->GetNth(i).data()));
         }
@@ -175,18 +174,18 @@ class HistoryTests
         {
             VERIFY_SUCCEEDED(history->Add(_manyHistoryItems[j], false));
         }
-        VERIFY_ARE_EQUAL(s_BufferSize, history->GetNumberOfCommands());
+        VERIFY_ARE_EQUAL(static_cast<int>(s_BufferSize), history->GetNumberOfCommands());
 
         Log::Comment(L"Retrieve items/order.");
         std::vector<std::wstring> commandsStored;
-        for (CommandHistory::Index i = 0; i < history->GetNumberOfCommands(); i++)
+        for (SHORT i = 0; i < static_cast<SHORT>(history->GetNumberOfCommands()); i++)
         {
             commandsStored.emplace_back(history->GetNth(i));
         }
 
         Log::Comment(L"Reallocate smaller and ensure items and order are preserved. Items at end of list should be trimmed.");
         history->Realloc(5);
-        for (CommandHistory::Index i = 0; i < 5; i++)
+        for (SHORT i = 0; i < 5; i++)
         {
             VERIFY_ARE_EQUAL(String(commandsStored[i].data()), String(history->GetNth(i).data()));
         }
@@ -267,7 +266,7 @@ private:
     };
 
     static constexpr UINT s_NumberOfBuffers = 4;
-    static constexpr CommandHistory::Index s_BufferSize = 10;
+    static constexpr UINT s_BufferSize = 10;
 
     HANDLE _MakeHandle(size_t index)
     {

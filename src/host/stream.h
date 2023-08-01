@@ -35,16 +35,4 @@ Revision History:
                                           INPUT_READ_HANDLE_DATA& readHandleState,
                                           const bool unicode);
 
-// Routine Description:
-// - This routine returns the total number of screen spaces the characters up to the specified character take up.
-til::CoordType RetrieveTotalNumberOfSpaces(const til::CoordType sOriginalCursorPositionX,
-                                           _In_reads_(ulCurrentPosition) const WCHAR* const pwchBuffer,
-                                           const size_t ulCurrentPosition);
-
-// Routine Description:
-// - This routine returns the number of screen spaces the specified character takes up.
-til::CoordType RetrieveNumberOfSpaces(_In_ til::CoordType sOriginalCursorPositionX,
-                                      _In_reads_(ulCurrentPosition + 1) const WCHAR* const pwchBuffer,
-                                      _In_ size_t ulCurrentPosition);
-
 VOID UnblockWriteConsole(const DWORD dwReason);

@@ -28,16 +28,6 @@ WCHAR CharToWchar(_In_reads_(cch) const char* const pch, const UINT cch);
 
 void SetConsoleCPInfo(const BOOL fOutput);
 
-BOOL CheckBisectStringW(_In_reads_bytes_(cBytes) const WCHAR* pwchBuffer,
-                        _In_ size_t cWords,
-                        _In_ size_t cBytes) noexcept;
-BOOL CheckBisectProcessW(const SCREEN_INFORMATION& ScreenInfo,
-                         _In_reads_bytes_(cBytes) const WCHAR* pwchBuffer,
-                         _In_ size_t cWords,
-                         _In_ size_t cBytes,
-                         _In_ til::CoordType sOriginalXPosition,
-                         _In_ BOOL fPrintableControlChars);
-
 int ConvertToOem(const UINT uiCodePage,
                  _In_reads_(cchSource) const WCHAR* const pwchSource,
                  const UINT cchSource,
