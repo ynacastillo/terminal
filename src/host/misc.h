@@ -34,19 +34,8 @@ int ConvertToOem(const UINT uiCodePage,
                  _Out_writes_(cchTarget) CHAR* const pchTarget,
                  const UINT cchTarget) noexcept;
 
-int ConvertInputToUnicode(const UINT uiCodePage,
-                          _In_reads_(cchSource) const CHAR* const pchSource,
-                          const UINT cchSource,
-                          _Out_writes_(cchTarget) WCHAR* const pwchTarget,
-                          const UINT cchTarget) noexcept;
-
 int ConvertOutputToUnicode(_In_ UINT uiCodePage,
                            _In_reads_(cchSource) const CHAR* const pchSource,
                            _In_ UINT cchSource,
                            _Out_writes_(cchTarget) WCHAR* pwchTarget,
                            _In_ UINT cchTarget) noexcept;
-
-bool DoBuffersOverlap(const BYTE* const pBufferA,
-                      const UINT cbBufferA,
-                      const BYTE* const pBufferB,
-                      const UINT cbBufferB) noexcept;

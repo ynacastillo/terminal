@@ -71,18 +71,6 @@ int ConvertToOem(const UINT uiCodePage,
     return LOG_IF_WIN32_BOOL_FALSE(WideCharToMultiByte(uiCodePage, 0, pwchSource, cchSource, pchTarget, cchTarget, nullptr, nullptr));
 }
 
-// Data in the output buffer is the true unicode value.
-int ConvertInputToUnicode(const UINT uiCodePage,
-                          _In_reads_(cchSource) const CHAR* const pchSource,
-                          const UINT cchSource,
-                          _Out_writes_(cchTarget) WCHAR* const pwchTarget,
-                          const UINT cchTarget) noexcept
-{
-    DBGCHARS(("ConvertInputToUnicode %d->U %.*s\n", uiCodePage, cchSource > 10 ? 10 : cchSource, pchSource));
-
-    return MultiByteToWideChar(uiCodePage, 0, pchSource, cchSource, pwchTarget, cchTarget);
-}
-
 // Output data is always translated via the ansi codepage so glyph translation works.
 int ConvertOutputToUnicode(_In_ UINT uiCodePage,
                            _In_reads_(cchSource) const CHAR* const pchSource,
@@ -92,46 +80,6 @@ int ConvertOutputToUnicode(_In_ UINT uiCodePage,
 {
     FAIL_FAST_IF(!(cchTarget > 0));
     pwchTarget[0] = L'\0';
-
     DBGCHARS(("ConvertOutputToUnicode %d->U %.*s\n", uiCodePage, cchSource > 10 ? 10 : cchSource, pchSource));
-
-    if (DoBuffersOverlap(reinterpret_cast<const BYTE* const>(pchSource),
-                         cchSource * sizeof(CHAR),
-                         reinterpret_cast<const BYTE* const>(pwchTarget),
-                         cchTarget * sizeof(WCHAR)))
-    {
-        try
-        {
-            // buffers overlap so we need to copy one
-            std::string copyData(pchSource, cchSource);
-            return MultiByteToWideChar(uiCodePage, MB_USEGLYPHCHARS, copyData.data(), cchSource, pwchTarget, cchTarget);
-        }
-        catch (...)
-        {
-            return 0;
-        }
-    }
-    else
-    {
-        return MultiByteToWideChar(uiCodePage, MB_USEGLYPHCHARS, pchSource, cchSource, pwchTarget, cchTarget);
-    }
-}
-
-// Routine Description:
-// - checks if two buffers overlap
-// Arguments:
-// - pBufferA - pointer to start of first buffer
-// - cbBufferA - size of first buffer, in bytes
-// - pBufferB - pointer to start of second buffer
-// - cbBufferB - size of second buffer, in bytes
-// Return Value:
-// - true if buffers overlap, false otherwise
-bool DoBuffersOverlap(const BYTE* const pBufferA,
-                      const UINT cbBufferA,
-                      const BYTE* const pBufferB,
-                      const UINT cbBufferB) noexcept
-{
-    const auto pBufferAEnd = pBufferA + cbBufferA;
-    const auto pBufferBEnd = pBufferB + cbBufferB;
-    return (pBufferA <= pBufferB && pBufferAEnd >= pBufferB) || (pBufferB <= pBufferA && pBufferBEnd >= pBufferA);
+    return MultiByteToWideChar(uiCodePage, MB_USEGLYPHCHARS, pchSource, cchSource, pwchTarget, cchTarget);
 }

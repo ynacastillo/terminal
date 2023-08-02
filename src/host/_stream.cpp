@@ -213,7 +213,7 @@ void WriteCharsLegacy(SCREEN_INFORMATION& screenInfo, const std::wstring_view& t
             case UNICODE_TAB:
             {
                 const auto pos = cursor.GetPosition();
-                const auto tabCount = gsl::narrow_cast<size_t>(NUMBER_OF_SPACES_IN_TAB(pos.x));
+                const auto tabCount = gsl::narrow_cast<size_t>(8 - (pos.x & 7));
                 _writeCharsLegacyUnprocessed(screenInfo, { &tabSpaces[0], tabCount }, interactive, psScrollY);
                 continue;
             }
@@ -241,7 +241,7 @@ void WriteCharsLegacy(SCREEN_INFORMATION& screenInfo, const std::wstring_view& t
                 break;
             }
 
-            if (interactive && IS_CONTROL_CHAR(*it))
+            if (interactive && *it < L' ')
             {
                 const wchar_t wchs[2]{ L'^', static_cast<wchar_t>(*it + L'@') };
                 _writeCharsLegacyUnprocessed(screenInfo, { &wchs[0], 2 }, interactive, psScrollY);

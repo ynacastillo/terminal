@@ -20,8 +20,6 @@ Revision History:
 #include "../server/IWaitRoutine.h"
 #include "readData.hpp"
 
-#define IS_CONTROL_CHAR(wch) ((wch) < L' ')
-
 [[nodiscard]] NTSTATUS GetChar(_Inout_ InputBuffer* const pInputBuffer,
                                _Out_ wchar_t* const pwchOut,
                                const bool Wait,
