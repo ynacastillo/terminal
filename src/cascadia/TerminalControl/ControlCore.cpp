@@ -1973,7 +1973,55 @@ namespace winrt::Microsoft::Terminal::Control::implementation
             _terminal->MultiClickSelection(terminalPosition, mode);
             selectionNeedsToBeCopied = true;
         }
-        _updateSelectionUI();
+        else if (_settings->MoveCursorWithMouse()) // This is also mode==Char && !shiftEnabled
+        {
+            // If we're handling a single left click, without shift pressed, and
+            // outside mouse mode, AND the user has MoveCursorWithMouse turned
+            // on, let's try to move the cursor.
+            //
+            // We'll only move the cursor if the user has clicked after the last
+            // mark, if there is one. That means the user also needs to set up
+            // shell integration to enable this feature.
+            //
+            // As noted in GH #8573, there's plenty of edge cases with this
+            // approach, but it's good enough to bring value to 90% of use cases.
+            const auto cursorPos{ _terminal->GetCursorPosition() };
+
+            // Does the current buffer line have a mark on it?
+            const auto& marks{ _terminal->GetScrollMarks() };
+            if (!marks.empty())
+            {
+                const auto& last{ marks.back() };
+                const auto [start, end] = last.GetExtent();
+                if (terminalPosition >= end)
+                {
+                    // Get the distance between the cursor and the click, in cells.
+                    const auto bufferSize = _terminal->GetTextBuffer().GetSize();
+
+                    // First, make sure to iterate from the first point to the
+                    // second. The user may have clicked _earlier_ in the
+                    // buffer!
+                    auto goRight = terminalPosition > cursorPos;
+                    const auto startPoint = goRight ? cursorPos : terminalPosition;
+                    const auto endPoint = goRight ? terminalPosition : cursorPos;
+
+                    const auto delta = _terminal->GetTextBuffer().GetCellDistance(startPoint, endPoint);
+
+                    const WORD key = goRight ? VK_RIGHT : VK_LEFT;
+                    // Send an up and a down once per cell. This won't
+                    // accurately handle wide characters, or continuation
+                    // prompts, or cases where a single escape character in the
+                    // command (e.g. ^[) takes up two cells.
+                    for (size_t i = 0u; i < delta; i++)
+                    {
+                        _terminal->SendKeyEvent(key, 0, {}, true);
+                        _terminal->SendKeyEvent(key, 0, {}, false);
+                    }
+                }
+            }
+
+            _updateSelectionUI();
+        }
     }
 
     // Method Description:
