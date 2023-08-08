@@ -77,7 +77,7 @@ void AdaptDispatch::_WriteToBuffer(const std::wstring_view string)
     auto& cursor = textBuffer.GetCursor();
     auto cursorPosition = cursor.GetPosition();
     const auto wrapAtEOL = _api.GetSystemMode(ITerminalApi::Mode::AutoWrap);
-    const auto attributes = textBuffer.GetCurrentAttributes();
+    const auto& attributes = textBuffer.GetCurrentAttributes();
 
     const auto viewport = _api.GetViewport();
     const auto [topMargin, bottomMargin] = _GetVerticalMargins(viewport, true);
@@ -502,7 +502,7 @@ bool AdaptDispatch::CursorSaveState()
     // First retrieve some information about the buffer
     const auto viewport = _api.GetViewport();
     const auto& textBuffer = _api.GetTextBuffer();
-    const auto attributes = textBuffer.GetCurrentAttributes();
+    const auto& attributes = textBuffer.GetCurrentAttributes();
 
     // The cursor is given to us by the API as relative to the whole buffer.
     // But in VT speak, the cursor row should be relative to the current viewport top.
@@ -1012,6 +1012,16 @@ void AdaptDispatch::_ChangeRectAttributes(TextBuffer& textBuffer, const til::rec
                 {
                     attr.SetBackground(*changeOps.background);
                 }
+                // remove underline style if the underline is no longer set.
+                if (!attr.IsUnderlined())
+                {
+                    attr.SetUnderlineStyle(UnderlineStyle::NoUnderline);
+                }
+                // incase of DECCARA, we might have received a new style. (we never pass ChangeOps with underlineStyle set in DECRARA)
+                else if (changeOps.underlineStyle)
+                {
+                    attr.SetUnderlineStyle(*changeOps.underlineStyle);
+                }
                 rowBuffer.ReplaceAttributes(col, col + 1, attr);
             }
         }
@@ -1143,6 +1153,14 @@ bool AdaptDispatch::ChangeAttributesRectangularArea(const VTInt top, const VTInt
     const auto backgroundChanged = !background.IsDefault() || allAttrsOn.GetBackground().IsDefault();
     changeOps.foreground = foregroundChanged ? std::optional{ foreground } : std::nullopt;
     changeOps.background = backgroundChanged ? std::optional{ background } : std::nullopt;
+
+    const auto underlineColor = allAttrsOff.GetUnderlineColor();
+    const auto underlineColorChanged = !underlineColor.IsDefault() || allAttrsOn.GetUnderlineColor().IsDefault();
+    changeOps.underlineColor = underlineColorChanged ? std::optional{ underlineColor } : std::nullopt;
+
+    const auto underlineStyle = allAttrsOff.GetUnderlineStyle();
+    const auto underlineStyleChanged = allAttrsOff.IsUnderlined() || !allAttrsOn.IsUnderlined();
+    changeOps.underlineStyle = underlineStyleChanged ? std::optional{ underlineStyle } : std::nullopt;
 
     _ChangeRectOrStreamAttributes({ left, top, right, bottom }, changeOps);
 
@@ -4165,7 +4183,7 @@ void AdaptDispatch::_ReportSGRSetting() const
     fmt::basic_memory_buffer<wchar_t, 64> response;
     response.append(L"\033P1$r0"sv);
 
-    const auto attr = _api.GetTextBuffer().GetCurrentAttributes();
+    const auto& attr = _api.GetTextBuffer().GetCurrentAttributes();
     // For each boolean attribute that is set, we add the appropriate
     // parameter value to the response string.
     const auto addAttribute = [&](const auto& parameter, const auto enabled) {
@@ -4277,7 +4295,7 @@ void AdaptDispatch::_ReportDECSCASetting() const
     fmt::basic_memory_buffer<wchar_t, 64> response;
     response.append(L"\033P1$r"sv);
 
-    const auto attr = _api.GetTextBuffer().GetCurrentAttributes();
+    const auto& attr = _api.GetTextBuffer().GetCurrentAttributes();
     response.append(attr.IsProtected() ? L"1"sv : L"0"sv);
 
     // The '"q' indicates this is an DECSCA response, and ST ends the sequence.
@@ -4299,7 +4317,6 @@ void AdaptDispatch::_ReportDECSACESetting() const
     fmt::basic_memory_buffer<wchar_t, 64> response;
     response.append(L"\033P1$r"sv);
 
-    const auto attr = _api.GetTextBuffer().GetCurrentAttributes();
     response.append(_modes.test(Mode::RectangularChangeExtent) ? L"2"sv : L"1"sv);
 
     // The '*x' indicates this is an DECSACE response, and ST ends the sequence.
@@ -4399,7 +4416,7 @@ void AdaptDispatch::_ReportCursorInformation()
     const auto viewport = _api.GetViewport();
     const auto& textBuffer = _api.GetTextBuffer();
     const auto& cursor = textBuffer.GetCursor();
-    const auto attributes = textBuffer.GetCurrentAttributes();
+    const auto& attributes = textBuffer.GetCurrentAttributes();
 
     // First pull the cursor position relative to the entire buffer out of the console.
     til::point cursorPosition{ cursor.GetPosition() };
