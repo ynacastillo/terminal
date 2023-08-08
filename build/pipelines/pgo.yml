@@ -1,6 +1,25 @@
 trigger: none
 pr: none
 
+parameters:
+  - name: buildPlatforms
+    type: object
+    default:
+      - x64
+      - arm64
+  - name: pgoProject
+    type: string
+    default: ''
+  - name: pgoDefinition
+    type: string
+    default: ''
+  - name: pgoVersionDl
+    type: string
+    default: ''
+  - name: pgoPipelineId
+    type: string
+    default: ''
+
 variables:
   - name: runCodesignValidationInjectionBG
     value: false
@@ -10,18 +29,64 @@ variables:
 name: 0.0.$(Date:yyMM).$(Date:dd)$(Rev:rr)
 
 stages:
-  - stage: Build_x64
-    displayName: Build x64
+  - stage: Build
+    displayName: Build
     dependsOn: []
     condition: succeeded()
     jobs:
-      - template: ./templates/build-console-pgo.yml
+      - template: ./templates-v2/job-build-project.yml
         parameters:
-          platform: x64
-  - stage: Publish_PGO_Databases
-    displayName: Publish PGO databases
-    dependsOn: ['Build_x64']
+          pool:
+            ${{ if eq(variables['System.CollectionUri'], 'https://dev.azure.com/ms/') }}:
+              name: SHINE-OSS-L
+            ${{ if ne(variables['System.CollectionUri'], 'https://dev.azure.com/ms/') }}:
+              name: SHINE-INT-L
+          buildPlatforms: ${{ parameters.buildPlatforms }}
+          buildConfigurations: [Release]
+          buildEverything: true
+          pgoBuildMode: Instrument
+          artifactStem: -instrumentation
+
+  - stage: RunPGO
+    displayName: Run PGO
+    dependsOn: [Build]
+    condition: succeeded()
     jobs:
-      - template: ./templates/pgo-build-and-publish-nuget-job.yml
+      - ${{ each platform in parameters.buildPlatforms }}:
+        - template: ./templates-v2/job-run-pgo-tests.yml
+          parameters:
+            # This job chooses its own pools based on platform
+            buildPlatform: ${{ platform }}
+            buildConfiguration: Release
+            artifactStem: -instrumentation
+
+  - stage: FinalizePGO
+    displayName: Finalize PGO and Publish
+    dependsOn: [RunPGO]
+    condition: succeeded()
+    jobs:
+      # This job takes multiple platforms and fans them back in to a single artifact.
+      - template: ./templates-v2/job-pgo-merge-pgd.yml
         parameters:
-          pgoArtifact: 'PGO'
+          jobName: MergePGD
+          pool:
+            vmImage: 'windows-2022'
+          buildConfiguration: Release
+          buildPlatforms: ${{ parameters.buildPlatforms }}
+          artifactStem: -instrumentation
+          pgoProject: ${{parameters.pgoProject}}
+          pgoDefinition: ${{parameters.pgoDefinition}}
+          pgoVersionDl: ${{parameters.pgoVersionDl}}
+          pgoPipelineId: ${{parameters.pgoPipelineId}}
+
+      - template: ./templates-v2/job-pgo-build-nuget-and-publish.yml
+        parameters:
+          pool:
+            vmImage: 'windows-2022'
+          dependsOn: MergePGD
+          buildConfiguration: Release
+          artifactStem: -instrumentation
+          pgoProject: ${{parameters.pgoProject}}
+          pgoDefinition: ${{parameters.pgoDefinition}}
+          pgoVersionDl: ${{parameters.pgoVersionDl}}
+          pgoPipelineId: ${{parameters.pgoPipelineId}}
