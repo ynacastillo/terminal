@@ -16,6 +16,7 @@
 #include "../../cascadia/terminalcore/ITerminalInput.hpp"
 
 #include <til/ticket_lock.h>
+#include <til/winrt.h>
 
 inline constexpr std::wstring_view linkPattern{ LR"(\b(https?|ftp|file)://[-A-Za-z0-9+&@#/%?=~_|$!:,.;]*[A-Za-z0-9+&@#/%=~_|$])" };
 inline constexpr size_t TaskbarMinProgress{ 10 };
@@ -118,6 +119,8 @@ public:
                  const til::point& start,
                  const til::point& end,
                  const bool fromUi);
+
+    til::property<bool> AlwaysNotifyOnBufferRotation;
 
     std::wstring_view CurrentCommand() const;
 
