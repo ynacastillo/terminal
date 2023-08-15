@@ -846,4 +846,7 @@
   <data name="TerminalPage_TabMovedAnnouncement" xml:space="preserve">
     <value>Tab moved successfully</value>
   </data>
+  <data name="CmdAppendCommandLineDesc" xml:space="preserve">
+    <value>If set, the command will be appended to the profile's default command instead of replacing it.</value>
+  </data>
 </root>
