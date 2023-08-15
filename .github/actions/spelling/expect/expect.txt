@@ -18,7 +18,6 @@ ADDALIAS
 ADDREF
 ADDSTRING
 ADDTOOL
-AEnd
 AFew
 AFill
 AFX
@@ -307,7 +306,6 @@ coordnew
 COPYCOLOR
 CORESYSTEM
 cotaskmem
-countof
 CPG
 cpinfo
 CPINFOEX
@@ -691,7 +689,7 @@ FSINFOCLASS
 fte
 Ftm
 Fullscreens
-fullwidth
+Fullwidth
 FUNCTIONCALL
 fuzzer
 fuzzmain
@@ -832,7 +830,6 @@ HMK
 hmod
 hmodule
 hmon
-homeglyphs
 homoglyph
 HORZ
 hostable
@@ -936,7 +933,6 @@ itermcolors
 ITerminal
 itf
 Ith
-itoa
 IUI
 IUnknown
 ivalid
@@ -965,7 +961,6 @@ kernelbasestaging
 KEYBDINPUT
 keychord
 keydown
-keyevent
 KEYFIRST
 KEYLAST
 Keymapping
@@ -1118,6 +1113,7 @@ MDs
 MEASUREITEM
 megamix
 memallocator
+meme
 MENUCHAR
 MENUCONTROL
 MENUDROPALIGNMENT
@@ -1318,7 +1314,6 @@ onecoreuuid
 ONECOREWINDOWS
 onehalf
 oneseq
-ONLCR
 openbash
 opencode
 opencon
@@ -1328,13 +1323,6 @@ openps
 openvt
 ORIGINALFILENAME
 osc
-OSCBG
-OSCCT
-OSCFG
-OSCRCC
-OSCSCB
-OSCSCC
-OSCWT
 OSDEPENDSROOT
 OSG
 OSGENG
@@ -1496,7 +1484,6 @@ propvariant
 propvarutil
 psa
 PSECURITY
-pseudocode
 pseudoconsole
 pseudoterminal
 psh
@@ -1615,7 +1602,6 @@ rgrc
 rgs
 rgui
 rgw
-rgwch
 RIGHTALIGN
 RIGHTBUTTON
 riid
@@ -1811,7 +1797,6 @@ STDMETHODCALLTYPE
 STDMETHODIMP
 STGM
 stl
-stoutapot
 Stri
 Stringable
 STRINGTABLE
@@ -1867,7 +1852,6 @@ TBM
 tchar
 TCHFORMAT
 TCI
-tcome
 tcommandline
 tcommands
 Tdd
@@ -1888,7 +1872,6 @@ TEs
 testbuildplatform
 testcon
 testd
-testdlls
 testenv
 testlab
 testlist
@@ -1899,8 +1882,6 @@ testnameprefix
 TESTNULL
 testpass
 testpasses
-testtestabc
-testtesttesttesttest
 testtimeout
 TEXCOORD
 texel
@@ -1929,7 +1910,6 @@ TJson
 TLambda
 TLDP
 TLEN
-Tlgdata
 TMAE
 TMPF
 TMult
@@ -2112,7 +2092,6 @@ vtseq
 vtterm
 vttest
 VWX
-waaay
 waitable
 WANSUNG
 WANTARROWS
@@ -2134,7 +2113,6 @@ WDDMCONSOLECONTEXT
 wdm
 webpage
 websites
-websockets
 wekyb
 wex
 wextest
@@ -2232,7 +2210,6 @@ wprp
 wprpi
 wregex
 writeback
-writechar
 WRITECONSOLE
 WRITECONSOLEINPUT
 WRITECONSOLEOUTPUT
@@ -2306,7 +2283,6 @@ xunit
 xutr
 XVIRTUALSCREEN
 XWalk
-xxyyzz
 yact
 YCast
 YCENTER
