@@ -27,6 +27,17 @@ Revision History:
 #include "WexTestClass.h"
 #endif
 
+enum class UnderlineStyle
+{
+    NoUnderline = 0,
+    SinglyUnderlined = 1,
+    DoublyUnderlined = 2,
+    CurlyUnderlined = 3,
+    DottedUnderlined = 4,
+    DashedUnderlined = 5,
+    Max = DashedUnderlined
+};
+
 class TextAttribute final
 {
 public:
@@ -34,7 +45,8 @@ public:
         _attrs{ CharacterAttributes::Normal },
         _foreground{},
         _background{},
-        _hyperlinkId{ 0 }
+        _hyperlinkId{ 0 },
+        _underlineColor{}
     {
     }
 
@@ -42,16 +54,28 @@ public:
         _attrs{ gsl::narrow_cast<WORD>(wLegacyAttr & USED_META_ATTRS) },
         _foreground{ gsl::at(s_legacyForegroundColorMap, wLegacyAttr & FG_ATTRS) },
         _background{ gsl::at(s_legacyBackgroundColorMap, (wLegacyAttr & BG_ATTRS) >> 4) },
-        _hyperlinkId{ 0 }
+        _hyperlinkId{ 0 },
+        _underlineColor{}
     {
     }
 
     constexpr TextAttribute(const COLORREF rgbForeground,
-                            const COLORREF rgbBackground) noexcept :
+                            const COLORREF rgbBackground,
+                            const COLORREF rgbUnderline = INVALID_COLOR) noexcept :
         _attrs{ CharacterAttributes::Normal },
         _foreground{ rgbForeground },
         _background{ rgbBackground },
-        _hyperlinkId{ 0 }
+        _hyperlinkId{ 0 },
+        _underlineColor{ rgbUnderline }
+    {
+    }
+
+    constexpr TextAttribute(const CharacterAttributes attrs, const TextColor foreground, const TextColor background, const uint16_t hyperlinkId, const TextColor underlineColor) noexcept :
+        _attrs{ attrs },
+        _foreground{ foreground },
+        _background{ background },
+        _hyperlinkId{ hyperlinkId },
+        _underlineColor{ underlineColor }
     {
     }
 
@@ -87,7 +111,6 @@ public:
     bool IsInvisible() const noexcept;
     bool IsCrossedOut() const noexcept;
     bool IsUnderlined() const noexcept;
-    bool IsDoublyUnderlined() const noexcept;
     bool IsOverlined() const noexcept;
     bool IsReverseVideo() const noexcept;
     bool IsProtected() const noexcept;
@@ -98,8 +121,7 @@ public:
     void SetBlinking(bool isBlinking) noexcept;
     void SetInvisible(bool isInvisible) noexcept;
     void SetCrossedOut(bool isCrossedOut) noexcept;
-    void SetUnderlined(bool isUnderlined) noexcept;
-    void SetDoublyUnderlined(bool isDoublyUnderlined) noexcept;
+    void SetUnderlineStyle(const UnderlineStyle underlineStyle) noexcept;
     void SetOverlined(bool isOverlined) noexcept;
     void SetReverseVideo(bool isReversed) noexcept;
     void SetProtected(bool isProtected) noexcept;
@@ -118,8 +140,11 @@ public:
     TextColor GetForeground() const noexcept;
     TextColor GetBackground() const noexcept;
     uint16_t GetHyperlinkId() const noexcept;
+    TextColor GetUnderlineColor() const noexcept;
+    UnderlineStyle GetUnderlineStyle() const noexcept;
     void SetForeground(const TextColor foreground) noexcept;
     void SetBackground(const TextColor background) noexcept;
+    void SetUnderlineColor(const TextColor color) noexcept;
     void SetForeground(const COLORREF rgbForeground) noexcept;
     void SetBackground(const COLORREF rgbBackground) noexcept;
     void SetIndexedForeground(const BYTE fgIndex) noexcept;
@@ -131,6 +156,7 @@ public:
 
     void SetDefaultForeground() noexcept;
     void SetDefaultBackground() noexcept;
+    void SetDefaultUnderlineColor() noexcept;
     void SetDefaultRenditionAttributes() noexcept;
 
     bool BackgroundIsDefault() const noexcept;
@@ -147,8 +173,8 @@ public:
         // global ^ local == false: the foreground attribute is the visible foreground, so we care about the backgrounds being identical
         const auto checkForeground = (inverted != IsReverseVideo());
         return !IsAnyGridLineEnabled() && // grid lines have a visual representation
-               // crossed out, doubly and singly underlined have a visual representation
-               WI_AreAllFlagsClear(_attrs, CharacterAttributes::CrossedOut | CharacterAttributes::DoublyUnderlined | CharacterAttributes::Underlined) &&
+               // styled underline and crossed out have a visual representation
+               !IsUnderlined() && WI_IsFlagClear(_attrs, CharacterAttributes::CrossedOut) &&
                // hyperlinks have a visual representation
                !IsHyperlink() &&
                // all other attributes do not have a visual representation
@@ -168,6 +194,19 @@ public:
     }
 
 private:
+    constexpr UnderlineStyle _CharacterAttrToUnderlineStyle(const CharacterAttributes attrs) const noexcept
+    {
+        const auto style = WI_EnumValue(attrs & CharacterAttributes::UnderlineStyle) >> UNDERLINE_STYLE_SHIFT;
+        assert((style >= 0) && (style <= WI_EnumValue(UnderlineStyle::Max)));
+        return static_cast<UnderlineStyle>(style);
+    }
+    constexpr CharacterAttributes _UnderlineStyleToCharacterAttr(const UnderlineStyle style) const noexcept
+    {
+        assert(WI_EnumValue(style) <= 0x07); // value must fit within 3 bits
+        const auto styleAttr = static_cast<UnderlineStyle>(WI_EnumValue(style) << UNDERLINE_STYLE_SHIFT);
+        return static_cast<CharacterAttributes>(styleAttr);
+    }
+
     static std::array<TextColor, 16> s_legacyForegroundColorMap;
     static std::array<TextColor, 16> s_legacyBackgroundColorMap;
 
@@ -175,6 +214,7 @@ private:
     uint16_t _hyperlinkId; // sizeof: 2, alignof: 2
     TextColor _foreground; // sizeof: 4, alignof: 1
     TextColor _background; // sizeof: 4, alignof: 1
+    TextColor _underlineColor; // sizeof: 4, alignof: 1
 
 #ifdef UNIT_TESTING
     friend class TextBufferTests;
