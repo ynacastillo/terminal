@@ -10,6 +10,8 @@
       "name": "ms-gsl",
       "version>=": "3.1.0"
     },
+    "jsoncpp",
+    "cli11",
     "pcg",
     "wyhash",
     "stb"
@@ -22,6 +24,14 @@
     {
       "name": "ms-gsl",
       "version": "3.1.0"
+    },
+    {
+      "name": "jsoncpp",
+      "version": "1.9.5"
+    },
+    {
+      "name": "cli11",
+      "version": "1.9.1"
     }
   ],
   "builtin-baseline": "c95000e1b5bb62884de08d5e952993c8bced9db6"
