@@ -11,6 +11,9 @@
 
   <PropertyGroup Label="vcpkg">
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
+    <!-- Set this here so that it doesn't get overwritten with "uwp" -->
+    <VcpkgOSTarget>windows</VcpkgOSTarget>
+    <VcpkgUseStatic>true</VcpkgUseStatic>
     <VcpkgRoot>$(VCPKG_ROOT)</VcpkgRoot>
   </PropertyGroup>
 
