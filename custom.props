@@ -8,4 +8,11 @@
     <VersionMinor>19</VersionMinor>
     <VersionInfoProductName>Windows Terminal</VersionInfoProductName>
   </PropertyGroup>
+
+  <PropertyGroup Label="vcpkg">
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+    <VcpkgRoot>$(VCPKG_ROOT)</VcpkgRoot>
+  </PropertyGroup>
+
+  <Import Project="$(VCPKG_ROOT)/scripts/buildsystems/msbuild/vcpkg.props" />
 </Project>
