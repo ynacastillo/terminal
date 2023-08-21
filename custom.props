@@ -14,6 +14,11 @@
     <!-- Set this here so that it doesn't get overwritten with "uwp" -->
     <VcpkgOSTarget>windows</VcpkgOSTarget>
     <VcpkgUseStatic>true</VcpkgUseStatic>
+    <!--
+      Since we link everything statically, we don't need to copy anything.
+      This saves running a powershell script for every project.
+    -->
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
     <VcpkgRoot>$(VCPKG_ROOT)</VcpkgRoot>
   </PropertyGroup>
 
