@@ -283,5 +283,3 @@ MSG*.bin
 profiles.json
 *.metaproj
 *.swp
-
-.vcpkg/
