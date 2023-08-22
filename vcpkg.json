@@ -3,12 +3,19 @@
   "dependencies": [
     "fmt",
     "ms-gsl",
-    "jsoncpp",
-    "cli11",
     "pcg",
     "wyhash",
     "stb"
   ],
+  "features": {
+    "terminal": {
+      "description": "Components required for Windows Terminal; separated out to make the Windows conhost build work",
+      "dependencies": [
+        "jsoncpp",
+        "cli11"
+      ]
+    }
+  },
   "overrides": [
     {
       "name": "fmt",

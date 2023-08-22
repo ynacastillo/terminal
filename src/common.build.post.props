@@ -117,7 +117,7 @@
   <!-- For C++ projects, bring in the vcpkg targets at the end -->
   <PropertyGroup>
     <!-- This must be set before including the targets but after the props -->
-    <VcpkgInstalledDir>$(SolutionDir)\.vcpkg\$(VcpkgTriplet)\</VcpkgInstalledDir>
+    <VcpkgInstalledDir>$(SolutionDir)\obj\$(Platform)\vcpkg</VcpkgInstalledDir>
   </PropertyGroup>
   <Import Project="$(VcpkgRoot)/scripts/buildsystems/msbuild/vcpkg.targets" Condition="'$(MSBuildProjectExtension)'=='.vcxproj'" />
 </Project>
