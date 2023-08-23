@@ -1,7 +1,7 @@
 steps:
   - pwsh: |-
       $j = Get-Content vcpkg.json | ConvertFrom-Json
-      rm -r -fo dep/vcpkg
+      Remove-Item -Recurse -Force dep/vcpkg -ErrorAction:Ignore
       git clone https://github.com/microsoft/vcpkg dep/vcpkg
       cd dep/vcpkg
       & ./bootstrap-vcpkg.bat
