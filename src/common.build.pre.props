@@ -254,7 +254,11 @@
       This saves running a powershell script for every project.
     -->
     <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
+    <VcpkgInstalledDir>$(SolutionDir)\obj\$(Platform)\vcpkg</VcpkgInstalledDir>
     <VcpkgRoot Condition="'$(VcpkgRoot)'==''">$(VCPKG_ROOT)</VcpkgRoot>
+    <!-- VsInstallRoot is set by Visual Studio and MSBuild -->
+    <VcpkgRoot Condition="'$(VcpkgRoot)'==''">$(VsInstallRoot)\VC\vcpkg</VcpkgRoot>
+    <VcpkgRoot Condition="'$(VcpkgRoot)'=='' or !Exists('$(VcpkgRoot)\vcpkg.exe')">$(SolutionDir)\dep\vcpkg</VcpkgRoot>
   </PropertyGroup>
 
   <Import Project="$(VcpkgRoot)/scripts/buildsystems/msbuild/vcpkg.props" Condition="'$(MSBuildProjectExtension)'=='.vcxproj'" />
