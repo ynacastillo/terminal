@@ -1,0 +1,9 @@
+steps:
+  - pwsh: |-
+      $j = Get-Content vcpkg.json | ConvertFrom-Json
+      rm -r -fo dep/vcpkg
+      git clone https://github.com/microsoft/vcpkg dep/vcpkg
+      cd dep/vcpkg
+      & ./bootstrap-vcpkg.bat
+      echo "##vso[task.setvariable variable=VCPKG_ROOT]$PWD"
+    displayName: Install vcpkg (master branch)
