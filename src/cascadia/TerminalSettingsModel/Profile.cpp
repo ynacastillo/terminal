@@ -336,3 +336,28 @@ Json::Value Profile::ToJson() const
 
     return json;
 }
+winrt::hstring Profile::EvaluatedIcon() const
+{
+    // If the profile has an icon, return it.
+    if (!Icon().empty())
+    {
+        return Icon();
+    }
+
+    // Otherwise, return the first word of the commandline - that should be the executable name.
+    std::wstring_view cmdline{ Commandline() };
+    if (cmdline.empty())
+    {
+        return {};
+    }
+
+    auto firstSpace = cmdline.find_first_of(L" ");
+    if (firstSpace == std::wstring::npos)
+    {
+        return winrt::hstring{ cmdline };
+    }
+    else
+    {
+        return winrt::hstring{ cmdline.substr(0, firstSpace) };
+    }
+}
