@@ -112,7 +112,6 @@ private:
     HRESULT _CopyTextToSystemClipboard(const TextBuffer::TextAndColor& rows, const bool fAlsoCopyFormatting);
     HRESULT _CopyToSystemClipboard(std::string stringToCopy, LPCWSTR lpszFormat);
     void _PasteTextFromClipboard() noexcept;
-    void _StringPaste(const wchar_t* const pData) noexcept;
 
     const unsigned int _NumberOfClicks(til::point clickPos, std::chrono::steady_clock::time_point clickTime) noexcept;
     HRESULT _StartSelection(LPARAM lParam) noexcept;
