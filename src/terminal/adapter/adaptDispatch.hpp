@@ -205,8 +205,10 @@ namespace Microsoft::Console::VirtualTerminal
         {
             CharacterAttributes andAttrMask = CharacterAttributes::All;
             CharacterAttributes xorAttrMask = CharacterAttributes::Normal;
+            bool reverseUnderline = false; // underline needs to be reversed separately from other attributes
             std::optional<TextColor> foreground;
             std::optional<TextColor> background;
+            std::optional<TextColor> underlineColor;
         };
 
         void _WriteToBuffer(const std::wstring_view string);
@@ -296,6 +298,7 @@ namespace Microsoft::Console::VirtualTerminal
 
         SgrStack _sgrStack;
 
+        void _SetUnderlineStyleHelper(const VTParameter option, TextAttribute& attr) noexcept;
         size_t _SetRgbColorsHelper(const VTParameters options,
                                    TextAttribute& attr,
                                    const bool isForeground) noexcept;

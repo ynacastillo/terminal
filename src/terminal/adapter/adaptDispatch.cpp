@@ -77,7 +77,7 @@ void AdaptDispatch::_WriteToBuffer(const std::wstring_view string)
     auto& cursor = textBuffer.GetCursor();
     auto cursorPosition = cursor.GetPosition();
     const auto wrapAtEOL = _api.GetSystemMode(ITerminalApi::Mode::AutoWrap);
-    const auto attributes = textBuffer.GetCurrentAttributes();
+    const auto& attributes = textBuffer.GetCurrentAttributes();
 
     const auto viewport = _api.GetViewport();
     const auto [topMargin, bottomMargin] = _GetVerticalMargins(viewport, true);
@@ -502,7 +502,7 @@ bool AdaptDispatch::CursorSaveState()
     // First retrieve some information about the buffer
     const auto viewport = _api.GetViewport();
     const auto& textBuffer = _api.GetTextBuffer();
-    const auto attributes = textBuffer.GetCurrentAttributes();
+    const auto& attributes = textBuffer.GetCurrentAttributes();
 
     // The cursor is given to us by the API as relative to the whole buffer.
     // But in VT speak, the cursor row should be relative to the current viewport top.
@@ -1000,6 +1000,25 @@ void AdaptDispatch::_ChangeRectAttributes(TextBuffer& textBuffer, const til::rec
             for (auto col = changeRect.left; col < changeRect.right; col++)
             {
                 auto attr = rowBuffer.GetAttrByColumn(col);
+
+                // handle reverseUnderline first as we don't want to override
+                // the calculated characterAttributes. Note that changing the original
+                // attributes does not affect the calculated characterAttributes.
+                // This way we ensure DECCARA works as expected. Also, In DECRARA
+                // changeOps.xorAttrMask doesn't set any UnderlineStyle bits, so we
+                // don't need to worry about them being reversed later on.
+                if (changeOps.reverseUnderline)
+                {
+                    if (attr.IsUnderlined())
+                    {
+                        attr.SetUnderlineStyle(UnderlineStyle::NoUnderline);
+                    }
+                    else
+                    {
+                        attr.SetUnderlineStyle(UnderlineStyle::SinglyUnderlined);
+                    }
+                }
+
                 auto characterAttributes = attr.GetCharacterAttributes();
                 characterAttributes &= changeOps.andAttrMask;
                 characterAttributes ^= changeOps.xorAttrMask;
@@ -1011,6 +1030,10 @@ void AdaptDispatch::_ChangeRectAttributes(TextBuffer& textBuffer, const til::rec
                 if (changeOps.background)
                 {
                     attr.SetBackground(*changeOps.background);
+                }
+                if (changeOps.underlineColor)
+                {
+                    attr.SetUnderlineColor(*changeOps.underlineColor);
                 }
                 rowBuffer.ReplaceAttributes(col, col + 1, attr);
             }
@@ -1121,7 +1144,7 @@ bool AdaptDispatch::ChangeAttributesRectangularArea(const VTInt top, const VTInt
     // provides us with an OR mask and an AND mask which can then be applied to
     // each cell to set and reset the appropriate attribute bits.
     auto allAttrsOff = TextAttribute{};
-    auto allAttrsOn = TextAttribute{ 0, 0 };
+    auto allAttrsOn = TextAttribute{ 0, 0, 0 };
     allAttrsOn.SetCharacterAttributes(CharacterAttributes::All);
     _ApplyGraphicsOptions(attrs, allAttrsOff);
     _ApplyGraphicsOptions(attrs, allAttrsOn);
@@ -1143,6 +1166,10 @@ bool AdaptDispatch::ChangeAttributesRectangularArea(const VTInt top, const VTInt
     const auto backgroundChanged = !background.IsDefault() || allAttrsOn.GetBackground().IsDefault();
     changeOps.foreground = foregroundChanged ? std::optional{ foreground } : std::nullopt;
     changeOps.background = backgroundChanged ? std::optional{ background } : std::nullopt;
+
+    const auto underlineColor = allAttrsOff.GetUnderlineColor();
+    const auto underlineColorChanged = !underlineColor.IsDefault() || allAttrsOn.GetUnderlineColor().IsDefault();
+    changeOps.underlineColor = underlineColorChanged ? std::optional{ underlineColor } : std::nullopt;
 
     _ChangeRectOrStreamAttributes({ left, top, right, bottom }, changeOps);
 
@@ -1168,6 +1195,12 @@ bool AdaptDispatch::ReverseAttributesRectangularArea(const VTInt top, const VTIn
     // then combine them with XOR, because if we're reversing the same attribute
     // twice, we'd expect the two instances to cancel each other out.
     auto reverseMask = CharacterAttributes::Normal;
+
+    // track underline reversal separately from reverseMask. Simply alternating
+    // the bits would lead to incorrect results, since each underline style is
+    // made up of 3 bits, and might be flipped in random order.
+    auto reverseUnderline = false;
+
     if (!attrs.empty())
     {
         for (size_t i = 0; i < attrs.size();)
@@ -1176,9 +1209,19 @@ bool AdaptDispatch::ReverseAttributesRectangularArea(const VTInt top, const VTIn
             // rendition bits. But note that this shouldn't be triggered by an
             // empty attribute list, so we explicitly exclude that case in
             // the empty check above.
-            if (attrs.at(i).value_or(0) == 0)
+            const auto param = attrs.at(i).value_or(0);
+            if (param == 0)
             {
-                reverseMask ^= CharacterAttributes::Rendition;
+                reverseMask ^= CharacterAttributes::Rendition & ~CharacterAttributes::UnderlineStyle; // underline bits do not take part in reverseMask
+                reverseUnderline = !reverseUnderline;
+                i++;
+            }
+            else if (param == 4 || param == 21)
+            {
+                if (!attrs.hasSubParamsFor(i)) // ignore the 4:x format
+                {
+                    reverseUnderline = !reverseUnderline;
+                }
                 i++;
             }
             else
@@ -1190,10 +1233,10 @@ bool AdaptDispatch::ReverseAttributesRectangularArea(const VTInt top, const VTIn
         }
     }
 
-    // If the accumulated mask ends up blank, there's nothing for us to do.
-    if (reverseMask != CharacterAttributes::Normal)
+    // If the accumulated mask ends up blank and reversing the underline is not required, there's nothing for us to do.
+    if (reverseMask != CharacterAttributes::Normal || reverseUnderline)
     {
-        _ChangeRectOrStreamAttributes({ left, top, right, bottom }, { .xorAttrMask = reverseMask });
+        _ChangeRectOrStreamAttributes({ left, top, right, bottom }, { .xorAttrMask = reverseMask, .reverseUnderline = reverseUnderline });
     }
 
     return true;
@@ -4165,7 +4208,8 @@ void AdaptDispatch::_ReportSGRSetting() const
     fmt::basic_memory_buffer<wchar_t, 64> response;
     response.append(L"\033P1$r0"sv);
 
-    const auto attr = _api.GetTextBuffer().GetCurrentAttributes();
+    const auto& attr = _api.GetTextBuffer().GetCurrentAttributes();
+    const auto ulStyle = attr.GetUnderlineStyle();
     // For each boolean attribute that is set, we add the appropriate
     // parameter value to the response string.
     const auto addAttribute = [&](const auto& parameter, const auto enabled) {
@@ -4177,12 +4221,15 @@ void AdaptDispatch::_ReportSGRSetting() const
     addAttribute(L";1"sv, attr.IsIntense());
     addAttribute(L";2"sv, attr.IsFaint());
     addAttribute(L";3"sv, attr.IsItalic());
-    addAttribute(L";4"sv, attr.IsUnderlined());
+    addAttribute(L";4"sv, ulStyle == UnderlineStyle::SinglyUnderlined);
+    addAttribute(L";4:3"sv, ulStyle == UnderlineStyle::CurlyUnderlined);
+    addAttribute(L";4:4"sv, ulStyle == UnderlineStyle::DottedUnderlined);
+    addAttribute(L";4:5"sv, ulStyle == UnderlineStyle::DashedUnderlined);
     addAttribute(L";5"sv, attr.IsBlinking());
     addAttribute(L";7"sv, attr.IsReverseVideo());
     addAttribute(L";8"sv, attr.IsInvisible());
     addAttribute(L";9"sv, attr.IsCrossedOut());
-    addAttribute(L";21"sv, attr.IsDoublyUnderlined());
+    addAttribute(L";21"sv, ulStyle == UnderlineStyle::DoublyUnderlined);
     addAttribute(L";53"sv, attr.IsOverlined());
 
     // We also need to add the appropriate color encoding parameters for
@@ -4209,6 +4256,7 @@ void AdaptDispatch::_ReportSGRSetting() const
     };
     addColor(30, attr.GetForeground());
     addColor(40, attr.GetBackground());
+    addColor(50, attr.GetUnderlineColor());
 
     // The 'm' indicates this is an SGR response, and ST ends the sequence.
     response.append(L"m\033\\"sv);
@@ -4277,7 +4325,7 @@ void AdaptDispatch::_ReportDECSCASetting() const
     fmt::basic_memory_buffer<wchar_t, 64> response;
     response.append(L"\033P1$r"sv);
 
-    const auto attr = _api.GetTextBuffer().GetCurrentAttributes();
+    const auto& attr = _api.GetTextBuffer().GetCurrentAttributes();
     response.append(attr.IsProtected() ? L"1"sv : L"0"sv);
 
     // The '"q' indicates this is an DECSCA response, and ST ends the sequence.
@@ -4299,7 +4347,6 @@ void AdaptDispatch::_ReportDECSACESetting() const
     fmt::basic_memory_buffer<wchar_t, 64> response;
     response.append(L"\033P1$r"sv);
 
-    const auto attr = _api.GetTextBuffer().GetCurrentAttributes();
     response.append(_modes.test(Mode::RectangularChangeExtent) ? L"2"sv : L"1"sv);
 
     // The '*x' indicates this is an DECSACE response, and ST ends the sequence.
@@ -4399,7 +4446,7 @@ void AdaptDispatch::_ReportCursorInformation()
     const auto viewport = _api.GetViewport();
     const auto& textBuffer = _api.GetTextBuffer();
     const auto& cursor = textBuffer.GetCursor();
-    const auto attributes = textBuffer.GetCurrentAttributes();
+    const auto& attributes = textBuffer.GetCurrentAttributes();
 
     // First pull the cursor position relative to the entire buffer out of the console.
     til::point cursorPosition{ cursor.GetPosition() };
@@ -4422,7 +4469,16 @@ void AdaptDispatch::_ReportCursorInformation()
     const auto pageNumber = 1;
 
     // Only some of the rendition attributes are reported.
-    auto renditionAttributes = L'@';
+    //   Bit    Attribute
+    //   1      bold
+    //   2      underlined
+    //   3      blink
+    //   4      reverse video
+    //   5      invisible
+    //   6      extension indicator
+    //   7      Always 1 (on)
+    //   8      Always 0 (off)
+    auto renditionAttributes = L'@'; // (0100 0000)
     renditionAttributes += (attributes.IsIntense() ? 1 : 0);
     renditionAttributes += (attributes.IsUnderlined() ? 2 : 0);
     renditionAttributes += (attributes.IsBlinking() ? 4 : 0);
@@ -4543,7 +4599,7 @@ ITermDispatch::StringHandler AdaptDispatch::_RestoreCursorInformation()
                 {
                     auto attr = textBuffer.GetCurrentAttributes();
                     attr.SetIntense(state.value & 1);
-                    attr.SetUnderlined(state.value & 2);
+                    attr.SetUnderlineStyle(state.value & 2 ? UnderlineStyle::SinglyUnderlined : UnderlineStyle::NoUnderline);
                     attr.SetBlinking(state.value & 4);
                     attr.SetReverseVideo(state.value & 8);
                     attr.SetInvisible(state.value & 16);
