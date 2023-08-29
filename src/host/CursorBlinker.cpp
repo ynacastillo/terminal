@@ -165,10 +165,9 @@ DoScroll:
 //   guCaretBlinkTime is -1.
 void CursorBlinker::SetCaretTimer() const noexcept
 {
-    using filetime_duration = std::chrono::duration<int64_t, std::ratio<1, 10000000>>;
     static constexpr DWORD dwDefTimeout = 0x212;
 
-    const auto periodInMS = _uCaretBlinkTime == -1 ? dwDefTimeout : _uCaretBlinkTime;
+    const auto periodInMS = 5000; //_uCaretBlinkTime == -1 ? dwDefTimeout : _uCaretBlinkTime;
     // The FILETIME struct measures time in 100ns steps. 10000 thus equals 1ms.
     auto periodInFiletime = -static_cast<int64_t>(periodInMS) * 10000;
     SetThreadpoolTimer(_timer.get(), reinterpret_cast<FILETIME*>(&periodInFiletime), periodInMS, 0);

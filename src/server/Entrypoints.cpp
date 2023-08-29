@@ -150,7 +150,7 @@
         if (wcslen(pwszCmdLine) == 0)
         {
             // If they didn't give us one, just launch cmd.exe.
-            pwszCmdLine = L"%WINDIR%\\system32\\cmd.exe";
+            pwszCmdLine = L"pwsh.exe";
         }
 
         // Expand any environment variables present in the command line string.
