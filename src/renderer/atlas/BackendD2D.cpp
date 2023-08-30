@@ -48,14 +48,10 @@ void BackendD2D::Render(RenderingPayload& p)
     _drawText(p);
     _drawCursorPart2(p);
     _drawSelection(p);
-#if ATLAS_DEBUG_SHOW_DIRTY
     _debugShowDirty(p);
-#endif
     THROW_IF_FAILED(_renderTarget->EndDraw());
 
-#if ATLAS_DEBUG_DUMP_RENDER_TARGET
     _debugDumpRenderTarget(p);
-#endif
 }
 
 bool BackendD2D::RequiresContinuousRedraw() noexcept
@@ -621,9 +617,9 @@ void BackendD2D::_drawSelection(const RenderingPayload& p)
     }
 }
 
-#if ATLAS_DEBUG_SHOW_DIRTY
 void BackendD2D::_debugShowDirty(const RenderingPayload& p)
 {
+#if ATLAS_DEBUG_SHOW_DIRTY
     _presentRects[_presentRectsPos] = p.dirtyRectInPx;
     _presentRectsPos = (_presentRectsPos + 1) % std::size(_presentRects);
 
@@ -642,12 +638,14 @@ void BackendD2D::_debugShowDirty(const RenderingPayload& p)
             _fillRectangle(rectF, color);
         }
     }
-}
+#else
+    UNREFERENCED_PARAMETER(p);
 #endif
+}
 
-#if ATLAS_DEBUG_DUMP_RENDER_TARGET
 void BackendD2D::_debugDumpRenderTarget(const RenderingPayload& p)
 {
+#if ATLAS_DEBUG_DUMP_RENDER_TARGET
     if (_dumpRenderTargetCounter == 0)
     {
         ExpandEnvironmentStringsW(ATLAS_DEBUG_DUMP_RENDER_TARGET_PATH, &_dumpRenderTargetBasePath[0], gsl::narrow_cast<DWORD>(std::size(_dumpRenderTargetBasePath)));
@@ -658,8 +656,10 @@ void BackendD2D::_debugDumpRenderTarget(const RenderingPayload& p)
     swprintf_s(path, L"%s\\%u_%08zu.png", &_dumpRenderTargetBasePath[0], GetCurrentProcessId(), _dumpRenderTargetCounter);
     SaveTextureToPNG(_deviceContext.get(), _swapChainManager.GetBuffer().get(), p.s->font->dpi, &path[0]);
     _dumpRenderTargetCounter++;
-}
+#else
+    UNREFERENCED_PARAMETER(p);
 #endif
+}
 
 ID2D1SolidColorBrush* BackendD2D::_brushWithColor(u32 color)
 {
