@@ -116,12 +116,6 @@ try
         _api.invalidatedRows.end,
     };
 
-    _p.dirtyRectInPx = {
-        til::CoordTypeMax,
-        til::CoordTypeMax,
-        til::CoordTypeMin,
-        til::CoordTypeMin,
-    };
     _p.invalidatedRows = _api.invalidatedRows;
     _p.cursorRect = {};
     _p.scrollOffset = _api.scrollOffset;
@@ -217,18 +211,15 @@ try
         const til::CoordType targetSizeX = _p.s->targetSize.x;
         const til::CoordType targetSizeY = _p.s->targetSize.y;
 
-        _p.dirtyRectInPx.left = 0;
-        _p.dirtyRectInPx.top = std::min(_p.dirtyRectInPx.top, _p.invalidatedRows.start * _p.s->font->cellSize.y);
-        _p.dirtyRectInPx.right = targetSizeX;
-        _p.dirtyRectInPx.bottom = std::max(_p.dirtyRectInPx.bottom, _p.invalidatedRows.end * _p.s->font->cellSize.y);
-
         for (auto y = _p.invalidatedRows.start; y < _p.invalidatedRows.end; ++y)
         {
             const auto r = _p.rows[y];
+
+            // The scrolling code above modifies dirtyTop/dirtyBottom.
             const auto clampedTop = clamp(r->dirtyTop, 0, targetSizeY);
             const auto clampedBottom = clamp(r->dirtyBottom, 0, targetSizeY);
 
-            if (clampedTop != clampedBottom)
+            if (clampedTop < clampedBottom)
             {
                 _p.dirtyRectInPx.top = std::min(_p.dirtyRectInPx.top, clampedTop);
                 _p.dirtyRectInPx.bottom = std::max(_p.dirtyRectInPx.bottom, clampedBottom);

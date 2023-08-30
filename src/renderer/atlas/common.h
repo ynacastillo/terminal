@@ -535,12 +535,6 @@ namespace Microsoft::Console::Render::Atlas
         std::array<til::generation_t, 2> colorBitmapGenerations{ 1, 1 };
         // In columns/rows.
         til::rect cursorRect;
-        // The viewport/SwapChain area to be presented. In pixel.
-        // NOTE:
-        //   This cannot use til::rect, because til::rect generally expects positive coordinates only
-        //   (`operator!()` checks for negative values), whereas this one can go out of bounds,
-        //   whenever glyphs go out of bounds. `AtlasEngine::_present()` will clamp it.
-        i32r dirtyRectInPx{};
         // In rows.
         range<u16> invalidatedRows{};
         // In pixel.
@@ -548,7 +542,6 @@ namespace Microsoft::Console::Render::Atlas
 
         void MarkAllAsDirty() noexcept
         {
-            dirtyRectInPx = { 0, 0, s->targetSize.x, s->targetSize.y };
             invalidatedRows = { 0, s->viewportCellCount.y };
             scrollOffset = 0;
         }
@@ -558,7 +551,7 @@ namespace Microsoft::Console::Render::Atlas
     {
         virtual ~IBackend() = default;
         virtual void ReleaseResources() noexcept = 0;
-        virtual void Render(RenderingPayload& payload) = 0;
+        virtual range<i32> Render(const RenderingPayload& payload) = 0;
         virtual bool RequiresContinuousRedraw() noexcept = 0;
     };
 }

@@ -47,8 +47,7 @@ try
         _handleSwapChainUpdate();
     }
 
-    _b->Render(_p);
-    _present();
+    _present(_b->Render(_p));
     return S_OK;
 }
 catch (const wil::ResultException& exception)
@@ -430,8 +429,14 @@ void AtlasEngine::_waitUntilCanRender() noexcept
     }
 }
 
-void AtlasEngine::_present()
+void AtlasEngine::_present(range<i32> invalidatedRange)
 {
+    // Present1() dislikes being called with an empty dirty rect.
+    if (invalidatedRange.empty())
+    {
+        return;
+    }
+
     const RECT fullRect{ 0, 0, _p.swapChain.targetSize.x, _p.swapChain.targetSize.y };
 
     DXGI_PRESENT_PARAMETERS params{};
@@ -440,17 +445,11 @@ void AtlasEngine::_present()
 
     // Since rows might be taller than their cells, they might have drawn outside of the viewport.
     RECT dirtyRect{
-        .left = std::max(_p.dirtyRectInPx.left, 0),
-        .top = std::max(_p.dirtyRectInPx.top, 0),
-        .right = std::min<LONG>(_p.dirtyRectInPx.right, fullRect.right),
-        .bottom = std::min<LONG>(_p.dirtyRectInPx.bottom, fullRect.bottom),
+        .left = 0,
+        .top = std::max(invalidatedRange.start, 0),
+        .right = fullRect.right,
+        .bottom = std::min<LONG>(invalidatedRange.start, fullRect.bottom),
     };
-
-    // Present1() dislikes being called with an empty dirty rect.
-    if (dirtyRect.left >= dirtyRect.right || dirtyRect.top >= dirtyRect.bottom)
-    {
-        return;
-    }
 
     if constexpr (!ATLAS_DEBUG_SHOW_DIRTY)
     {

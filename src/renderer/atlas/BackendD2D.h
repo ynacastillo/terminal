@@ -12,13 +12,13 @@ namespace Microsoft::Console::Render::Atlas
     struct BackendD2D : IBackend
     {
         void ReleaseResources() noexcept override;
-        void Render(RenderingPayload& payload) override;
+        range<i32> Render(const RenderingPayload& payload) override;
         bool RequiresContinuousRedraw() noexcept override;
 
     private:
         ATLAS_ATTR_COLD void _handleSettingsUpdate(const RenderingPayload& p);
         void _drawBackground(const RenderingPayload& p) noexcept;
-        void _drawText(RenderingPayload& p);
+        range<i32> _drawText(const RenderingPayload& p);
         ATLAS_ATTR_COLD f32 _drawTextPrepareLineRendition(const RenderingPayload& p, const ShapedRow* row, f32 baselineY) const noexcept;
         ATLAS_ATTR_COLD void _drawTextResetLineRendition(const ShapedRow* row) const noexcept;
         ATLAS_ATTR_COLD f32r _getGlyphRunDesignBounds(const DWRITE_GLYPH_RUN& glyphRun, f32 baselineX, f32 baselineY);

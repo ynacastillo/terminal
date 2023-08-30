@@ -212,7 +212,7 @@ void BackendD3D::ReleaseResources() noexcept
     _generation = {};
 }
 
-void BackendD3D::Render(RenderingPayload& p)
+range<i32> BackendD3D::Render(const RenderingPayload& p)
 {
     if (_generation != p.s.generation())
     {
@@ -236,7 +236,7 @@ void BackendD3D::Render(RenderingPayload& p)
 
     _drawBackground(p);
     _drawCursorBackground(p);
-    _drawText(p);
+    auto invalidatedRange = _drawText(p);
     _drawSelection(p);
 #if ATLAS_DEBUG_SHOW_DIRTY
     _debugShowDirty(p);
@@ -245,12 +245,14 @@ void BackendD3D::Render(RenderingPayload& p)
 
     if (_customPixelShader)
     {
-        _executeCustomShader(p);
+        invalidatedRange = _executeCustomShader(p);
     }
 
 #if ATLAS_DEBUG_DUMP_RENDER_TARGET
     _debugDumpRenderTarget(p);
 #endif
+
+    return invalidatedRange;
 }
 
 bool BackendD3D::RequiresContinuousRedraw() noexcept
@@ -956,7 +958,7 @@ void BackendD3D::_uploadBackgroundBitmap(const RenderingPayload& p)
     _backgroundBitmapGeneration = p.colorBitmapGenerations[0];
 }
 
-void BackendD3D::_drawText(RenderingPayload& p)
+range<i32> BackendD3D::_drawText(const RenderingPayload& p)
 {
     if (_fontChangedResetGlyphAtlas)
     {
@@ -1064,13 +1066,8 @@ void BackendD3D::_drawText(RenderingPayload& p)
         ++y;
     }
 
-    if (dirtyTop < dirtyBottom)
-    {
-        p.dirtyRectInPx.top = std::min(p.dirtyRectInPx.top, dirtyTop);
-        p.dirtyRectInPx.bottom = std::max(p.dirtyRectInPx.bottom, dirtyBottom);
-    }
-
     _d2dEndDrawing();
+    return { dirtyTop, dirtyBottom };
 }
 
 // There are a number of coding-oriented fonts that feature ligatures which (for instance)
@@ -2104,7 +2101,7 @@ void BackendD3D::_debugDumpRenderTarget(const RenderingPayload& p)
 }
 #endif
 
-void BackendD3D::_executeCustomShader(RenderingPayload& p)
+range<i32> BackendD3D::_executeCustomShader(const RenderingPayload& p)
 {
     {
         const CustomConstBuffer data{
@@ -2178,7 +2175,7 @@ void BackendD3D::_executeCustomShader(RenderingPayload& p)
 
     // With custom shaders, everything might be invalidated, so we have to
     // indirectly disable Present1() and its dirty rects this way.
-    p.dirtyRectInPx = { 0, 0, p.s->targetSize.x, p.s->targetSize.y };
+    return { 0, p.s->targetSize.y };
 }
 
 TIL_FAST_MATH_END

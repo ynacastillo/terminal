@@ -103,7 +103,7 @@ namespace Microsoft::Console::Render::Atlas
         void _resizeBuffers();
         void _updateMatrixTransform();
         void _waitUntilCanRender() noexcept;
-        void _present();
+        void _present(range<i32> invalidatedRange);
 
         static constexpr u16 u16min = 0x0000;
         static constexpr u16 u16max = 0xffff;

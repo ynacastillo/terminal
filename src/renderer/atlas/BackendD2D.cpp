@@ -31,7 +31,7 @@ void BackendD2D::ReleaseResources() noexcept
     _generation = {};
 }
 
-void BackendD2D::Render(RenderingPayload& p)
+range<i32> BackendD2D::Render(const RenderingPayload& p)
 {
     if (_generation != p.s.generation())
     {
@@ -45,7 +45,7 @@ void BackendD2D::Render(RenderingPayload& p)
 #endif
     _drawBackground(p);
     _drawCursorPart1(p);
-    _drawText(p);
+    const auto invalidatedRange = _drawText(p);
     _drawCursorPart2(p);
     _drawSelection(p);
 #if ATLAS_DEBUG_SHOW_DIRTY
@@ -56,6 +56,8 @@ void BackendD2D::Render(RenderingPayload& p)
 #if ATLAS_DEBUG_DUMP_RENDER_TARGET
     _debugDumpRenderTarget(p);
 #endif
+
+    return invalidatedRange;
 }
 
 bool BackendD2D::RequiresContinuousRedraw() noexcept
@@ -164,7 +166,7 @@ void BackendD2D::_drawBackground(const RenderingPayload& p) noexcept
     _renderTarget->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
 }
 
-void BackendD2D::_drawText(RenderingPayload& p)
+range<i32> BackendD2D::_drawText(const RenderingPayload& p)
 {
     til::CoordType dirtyTop = til::CoordTypeMax;
     til::CoordType dirtyBottom = til::CoordTypeMin;
@@ -277,11 +279,7 @@ void BackendD2D::_drawText(RenderingPayload& p)
         ++y;
     }
 
-    if (dirtyTop < dirtyBottom)
-    {
-        p.dirtyRectInPx.top = std::min(p.dirtyRectInPx.top, dirtyTop);
-        p.dirtyRectInPx.bottom = std::max(p.dirtyRectInPx.bottom, dirtyBottom);
-    }
+    return {dirtyTop, dirtyBottom};
 }
 
 f32 BackendD2D::_drawTextPrepareLineRendition(const RenderingPayload& p, const ShapedRow* row, f32 baselineY) const noexcept

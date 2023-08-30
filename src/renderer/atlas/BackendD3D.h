@@ -16,7 +16,7 @@ namespace Microsoft::Console::Render::Atlas
         BackendD3D(const RenderingPayload& p);
 
         void ReleaseResources() noexcept override;
-        void Render(RenderingPayload& payload) override;
+        range<i32> Render(const RenderingPayload& payload) override;
         bool RequiresContinuousRedraw() noexcept override;
 
         // NOTE: D3D constant buffers sizes must be a multiple of 16 bytes.
@@ -215,7 +215,7 @@ namespace Microsoft::Console::Render::Atlas
         ATLAS_ATTR_COLD void _recreateInstanceBuffers(const RenderingPayload& p);
         void _drawBackground(const RenderingPayload& p);
         void _uploadBackgroundBitmap(const RenderingPayload& p);
-        void _drawText(RenderingPayload& p);
+        range<i32> _drawText(const RenderingPayload& p);
         ATLAS_ATTR_COLD void _drawTextOverlapSplit(const RenderingPayload& p, u16 y);
         ATLAS_ATTR_COLD static void _initializeFontFaceEntry(AtlasFontFaceEntryInner& fontFaceEntry);
         ATLAS_ATTR_COLD [[nodiscard]] bool _drawGlyph(const RenderingPayload& p, const AtlasFontFaceEntryInner& fontFaceEntry, AtlasGlyphEntry& glyphEntry);
@@ -227,7 +227,7 @@ namespace Microsoft::Console::Render::Atlas
         ATLAS_ATTR_COLD void _drawCursorForeground();
         ATLAS_ATTR_COLD size_t _drawCursorForegroundSlowPath(const CursorRect& c, size_t offset);
         void _drawSelection(const RenderingPayload& p);
-        void _executeCustomShader(RenderingPayload& p);
+        range<i32> _executeCustomShader(const RenderingPayload& p);
 
         wil::com_ptr<ID3D11RenderTargetView> _renderTargetView;
         wil::com_ptr<ID3D11InputLayout> _inputLayout;
