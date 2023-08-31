@@ -193,6 +193,7 @@ HwndTerminal::~HwndTerminal()
 }
 
 HRESULT HwndTerminal::Initialize()
+try
 {
     _terminal = std::make_unique<::Microsoft::Terminal::Core::Terminal>();
     auto renderThread = std::make_unique<::Microsoft::Console::Render::RenderThread>();
@@ -201,8 +202,7 @@ HRESULT HwndTerminal::Initialize()
     renderSettings.SetColorTableEntry(TextColor::DEFAULT_BACKGROUND, RGB(12, 12, 12));
     renderSettings.SetColorTableEntry(TextColor::DEFAULT_FOREGROUND, RGB(204, 204, 204));
     _renderer = std::make_unique<::Microsoft::Console::Render::Renderer>(renderSettings, _terminal.get(), nullptr, 0, std::move(renderThread));
-    RETURN_HR_IF_NULL(E_POINTER, localPointerToThread);
-    RETURN_IF_FAILED(localPointerToThread->Initialize(_renderer.get()));
+    localPointerToThread->Initialize(_renderer.get());
 
     auto dxEngine = std::make_unique<::Microsoft::Console::Render::DxEngine>();
     RETURN_IF_FAILED(dxEngine->SetHwnd(_hwnd.get()));
@@ -230,6 +230,7 @@ HRESULT HwndTerminal::Initialize()
 
     return S_OK;
 }
+CATCH_RETURN()
 
 void HwndTerminal::Teardown() noexcept
 try

@@ -78,6 +78,7 @@ namespace Microsoft::Console::Render
         bool IsGlyphWideByFont(const std::wstring_view glyph);
 
         void EnablePainting();
+        void WaitForPaintCompletion(DWORD dwTimeoutMs);
         void WaitForPaintCompletionAndDisable(const DWORD dwTimeoutMs);
         void WaitUntilCanRender();
 

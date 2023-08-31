@@ -885,7 +885,7 @@ PWSTR TranslateConsoleTitle(_In_ PCWSTR pwszConsoleTitle, const BOOL fUnexpand, 
 
         g.pRender = new Renderer(gci.GetRenderSettings(), &gci.renderData, nullptr, 0, std::move(renderThread));
 
-        THROW_IF_FAILED(localPointerToThread->Initialize(g.pRender));
+        localPointerToThread->Initialize(g.pRender);
 
         // Set up the renderer to be used to calculate the width of a glyph,
         //      should we be unable to figure out its width another way.

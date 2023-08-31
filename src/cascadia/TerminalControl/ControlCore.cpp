@@ -143,7 +143,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
             _renderer->SetFrameColorChangedCallback([this]() { _rendererTabColorChanged(); });
             _renderer->SetRendererEnteredErrorStateCallback([this]() { _RendererEnteredErrorStateHandlers(nullptr, nullptr); });
 
-            THROW_IF_FAILED(localPointerToThread->Initialize(_renderer.get()));
+            localPointerToThread->Initialize(_renderer.get());
         }
 
         UpdateSettings(settings, unfocusedAppearance);

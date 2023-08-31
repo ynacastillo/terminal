@@ -1827,6 +1827,7 @@ bool AdaptDispatch::_ModeParamsHelper(const DispatchTypes::ModeParams param, con
             return false;
         }
         _renderer.TriggerRedrawAll();
+        _renderer.WaitForPaintCompletion(100);
         return true;
     case DispatchTypes::ModeParams::DECOM_OriginMode:
         _modes.set(Mode::Origin, enable);

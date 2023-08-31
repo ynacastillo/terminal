@@ -334,7 +334,7 @@ void Renderer::TriggerRedrawAll(const bool backgroundChanged, const bool frameCh
 void Renderer::TriggerTeardown() noexcept
 {
     // We need to shut down the paint thread on teardown.
-    _pThread->WaitForPaintCompletionAndDisable(INFINITE);
+    WaitForPaintCompletionAndDisable(INFINITE);
 
     // Then walk through and do one final paint on the caller's thread.
     FOREACH_ENGINE(pEngine)
@@ -647,6 +647,12 @@ void Renderer::EnablePainting()
     }
 }
 
+// Waits for the current paint operation to complete, if any, up to the specified timeout.
+void Renderer::WaitForPaintCompletion(const DWORD dwTimeoutMs)
+{
+    _pThread->WaitForPaintCompletion(dwTimeoutMs);
+}
+
 // Routine Description:
 // - Waits for the current paint operation to complete, if any, up to the specified timeout.
 // - Resets an event in the render thread that precludes it from advancing, thus disabling rendering.
@@ -657,7 +663,8 @@ void Renderer::EnablePainting()
 // - <none>
 void Renderer::WaitForPaintCompletionAndDisable(const DWORD dwTimeoutMs)
 {
-    _pThread->WaitForPaintCompletionAndDisable(dwTimeoutMs);
+    _pThread->DisablePainting();
+    _pThread->WaitForPaintCompletion(dwTimeoutMs);
 }
 
 // Routine Description:
