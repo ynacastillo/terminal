@@ -263,7 +263,10 @@ using namespace Microsoft::Console::Types;
         HandleFocusEvent(TRUE);
 
         // ActivateTextServices does nothing if already active so this is OK to be called every focus.
-        ActivateTextServices(ServiceLocator::LocateConsoleWindow()->GetWindowHandle(), GetImeSuggestionWindowPos, GetTextBoxArea);
+        if (!_tsf)
+        {
+            _tsf = CreateTextServices(ServiceLocator::LocateConsoleWindow()->GetWindowHandle(), GetImeSuggestionWindowPos, GetTextBoxArea);
+        }
 
         // set the text area to have focus for accessibility consumers
         if (_pUiaProvider)

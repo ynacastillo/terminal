@@ -21,20 +21,13 @@ Revision History:
 --*/
 
 #pragma once
-
 #include "conime.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+class CConsoleTSF;
 
+void DeleteTextServices(CConsoleTSF* tsf);
+
+using unique_CConsoleTSF = wistd::unique_ptr<CConsoleTSF, wil::function_deleter<decltype(&DeleteTextServices), DeleteTextServices>>;
 typedef RECT (*GetSuggestionWindowPos)();
 typedef RECT (*GetTextBoxAreaPos)();
-
-BOOL ActivateTextServices(HWND hwndConsole, GetSuggestionWindowPos pfnPosition, GetTextBoxAreaPos pfnTextArea);
-void DeactivateTextServices();
-BOOL NotifyTextServices(UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT* lplResult);
-
-#ifdef __cplusplus
-}
-#endif
+unique_CConsoleTSF CreateTextServices(HWND hwndConsole, GetSuggestionWindowPos pfnPosition, GetTextBoxAreaPos pfnTextArea);

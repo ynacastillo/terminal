@@ -151,6 +151,7 @@ namespace Microsoft::Console::Interactivity::Win32
                                                const LPARAM lParam);
         IRawElementProviderSimple* _GetUiaProvider();
         WRL::ComPtr<WindowUiaProvider> _pUiaProvider;
+        unique_CConsoleTSF _tsf;
 
         // Dynamic Settings helpers
         [[nodiscard]] static LRESULT s_RegPersistWindowPos(_In_ PCWSTR const pwszTitle,

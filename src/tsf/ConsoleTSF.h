@@ -208,7 +208,6 @@ private:
 
     // Miscellaneous flags
     BOOL _fModifyingDoc = FALSE; // Set TRUE, when calls ITfRange::SetText
-    BOOL _fCoInitialized = FALSE;
     BOOL _fEditSessionRequested = FALSE;
     BOOL _fCleanupSessionRequested = FALSE;
     BOOL _fCompositionCleanupSkipped = FALSE;

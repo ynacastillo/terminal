@@ -30,12 +30,6 @@ const GUID GUID_APPLICATION = { 0x626761ad, 0x78d2, 0x44d2, { 0xbe, 0x8b, 0x75, 
         return S_FALSE;
     }
 
-    // Activate per-thread Cicero in custom UI mode (TF_TMAE_UIELEMENTENABLEDONLY).
-
-    hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    Init_CheckResult();
-    _fCoInitialized = TRUE;
-
     hr = ::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&_spITfThreadMgr));
     Init_CheckResult();
 
@@ -197,11 +191,6 @@ void CConsoleTSF::Uninitialize()
         _spITfThreadMgr->Deactivate();
         _spITfThreadMgr.reset();
     }
-    if (_fCoInitialized)
-    {
-        ::CoUninitialize();
-        _fCoInitialized = FALSE;
-    }
 }
 
 //+---------------------------------------------------------------------------
@@ -264,16 +253,8 @@ CConsoleTSF::AddRef()
 STDAPI_(ULONG)
 CConsoleTSF::Release()
 {
-    auto cr = InterlockedDecrement(&_cRef);
-    if (cr == 0)
-    {
-        if (g_pConsoleTSF == this)
-        {
-            g_pConsoleTSF = nullptr;
-        }
-        delete this;
-    }
-    return cr;
+    // TODO
+    return InterlockedDecrement(&_cRef);
 }
 
 //+---------------------------------------------------------------------------

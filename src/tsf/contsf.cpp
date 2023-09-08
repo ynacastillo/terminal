@@ -3,31 +3,19 @@
 
 #include "precomp.h"
 
-CConsoleTSF* g_pConsoleTSF = nullptr;
-
-extern "C" BOOL ActivateTextServices(HWND hwndConsole, GetSuggestionWindowPos pfnPosition, GetTextBoxAreaPos pfnTextArea)
+unique_CConsoleTSF CreateTextServices(HWND hwndConsole, GetSuggestionWindowPos pfnPosition, GetTextBoxAreaPos pfnTextArea)
 {
-    if (!g_pConsoleTSF && hwndConsole)
+    unique_CConsoleTSF tsf{ new CConsoleTSF(hwndConsole, pfnPosition, pfnTextArea) };
+    if (SUCCEEDED(tsf->Initialize()))
     {
-        g_pConsoleTSF = new (std::nothrow) CConsoleTSF(hwndConsole, pfnPosition, pfnTextArea);
-        if (g_pConsoleTSF && SUCCEEDED(g_pConsoleTSF->Initialize()))
-        {
-            // Conhost calls this function only when the console window has focus.
-            g_pConsoleTSF->SetFocus(TRUE);
-        }
-        else
-        {
-            SafeReleaseClear(g_pConsoleTSF);
-        }
+        // Conhost calls this function only when the console window has focus.
+        tsf->SetFocus(TRUE);
     }
-    return g_pConsoleTSF ? TRUE : FALSE;
+    return tsf;
 }
 
-extern "C" void DeactivateTextServices()
+void DeleteTextServices(CConsoleTSF* tsf)
 {
-    if (g_pConsoleTSF)
-    {
-        g_pConsoleTSF->Uninitialize();
-        SafeReleaseClear(g_pConsoleTSF);
-    }
+    tsf->Uninitialize();
+    delete tsf;
 }

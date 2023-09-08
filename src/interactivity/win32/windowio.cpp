@@ -1082,9 +1082,6 @@ DWORD WINAPI ConsoleInputThreadProcWin32(LPVOID /*lpParameter*/)
         // -- END LOAD BEARING CODE
     }
 
-    // Free all resources used by this thread
-    DeactivateTextServices();
-
     if (nullptr != hhook)
     {
         UnhookWindowsHookEx(hhook);
