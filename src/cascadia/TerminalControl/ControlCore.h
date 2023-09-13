@@ -66,8 +66,9 @@ namespace winrt::Microsoft::Terminal::Control::implementation
                         const float actualHeight,
                         const float compositionScale);
         bool InitializeWithHwnd(const float actualWidth,
-                        const float actualHeight,
-                        const float compositionScale, const uint64_t hwnd);
+                                const float actualHeight,
+                                const float compositionScale,
+                                const uint64_t hwnd);
         void EnablePainting();
 
         void Detach();

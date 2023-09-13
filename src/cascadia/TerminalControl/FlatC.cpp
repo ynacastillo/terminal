@@ -15,7 +15,9 @@
     {                                       \
         return type{ __VA_ARGS__ };         \
     }                                       \
-    void name(const type&) {}
+    void name(const type&)                  \
+    {                                       \
+    }
 
 using namespace winrt::Microsoft::Terminal::Control;
 using namespace winrt::Microsoft::Terminal::Core;
@@ -67,7 +69,7 @@ static Point PointFromLParam(LPARAM lParam)
     return { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 }
 
-struct NullConnection : public winrt::implements<NullConnection, winrt::Microsoft::Terminal::TerminalConnection::ITerminalConnection>
+struct CsBridgeConnection : public winrt::implements<CsBridgeConnection, winrt::Microsoft::Terminal::TerminalConnection::ITerminalConnection>
 {
     void Initialize(IInspectable x) {}
     void Start() {}
@@ -87,24 +89,24 @@ struct NullConnection : public winrt::implements<NullConnection, winrt::Microsof
 
 public:
     std::function<void(const wchar_t*)> _pfnWriteCallback{ nullptr };
-    void WireOutput(const wchar_t* data)
+    void OriginateOutputFromConnection(const wchar_t* data)
     {
         _TerminalOutputHandlers(winrt::to_hstring(data));
     }
 };
 
-struct ThemeBasedTerminalSettings : winrt::implements<ThemeBasedTerminalSettings, IControlSettings, ICoreSettings, IControlAppearance, ICoreAppearance>
+struct CsBridgeTerminalSettings : winrt::implements<CsBridgeTerminalSettings, IControlSettings, ICoreSettings, IControlAppearance, ICoreAppearance>
 {
     using IFontAxesMap = winrt::Windows::Foundation::Collections::IMap<winrt::hstring, float>;
     using IFontFeatureMap = winrt::Windows::Foundation::Collections::IMap<winrt::hstring, uint32_t>;
-    ThemeBasedTerminalSettings()
+    CsBridgeTerminalSettings()
     {
         const auto campbellSpan = Microsoft::Console::Utils::CampbellColorTable();
         std::transform(campbellSpan.begin(), campbellSpan.end(), std::begin(_theme.ColorTable), [](auto&& color) {
             return color;
         });
     }
-    ~ThemeBasedTerminalSettings() = default;
+    ~CsBridgeTerminalSettings() = default;
 
     winrt::Microsoft::Terminal::Core::Color GetColorTableEntry(int32_t index) noexcept
     {
@@ -337,8 +339,8 @@ struct HwndTerminal
             SetWindowLongPtr(_hwnd.get(), GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
         }
 
-        _settingsBridge = winrt::make_self<ThemeBasedTerminalSettings>();
-        _connection = winrt::make_self<NullConnection>();
+        _settingsBridge = winrt::make_self<CsBridgeTerminalSettings>();
+        _connection = winrt::make_self<CsBridgeConnection>();
         _interactivity = ControlInteractivity{ *_settingsBridge, nullptr, *_connection };
         _core = _interactivity.Core();
 
@@ -348,12 +350,10 @@ struct HwndTerminal
 
     /*( PUBLIC API )*/
     HRESULT SendOutput(LPCWSTR data)
-    try
     {
-        _connection->WireOutput(data);
+        _connection->OriginateOutputFromConnection(data);
         return S_OK;
     }
-    CATCH_RETURN()
 
     HRESULT RegisterScrollCallback(PSCROLLCB callback)
     {
@@ -381,6 +381,7 @@ struct HwndTerminal
         //wil::assign_to_opt_param(dimensionsInPixels, /*thing*/);
         return S_FALSE;
     }
+
     HRESULT CalculateResize(_In_ til::CoordType width, _In_ til::CoordType height, _Out_ til::size* dimensions)
     {
         // TODO(DH): It seems weird to have to do this manually.
@@ -391,21 +392,25 @@ struct HwndTerminal
                                              });
         return S_OK;
     }
+
     HRESULT DpiChanged(int newDpi)
     {
         _core.ScaleChanged((float)newDpi / 96.0f);
         return S_OK;
     }
+
     HRESULT UserScroll(int viewTop)
     {
         _interactivity.UpdateScrollbar(viewTop);
         return S_OK;
     }
+
     HRESULT ClearSelection()
     {
         _core.ClearSelection();
         return S_OK;
     }
+
     HRESULT GetSelection(const wchar_t** out)
     {
         auto strings = _core.SelectedText(true);
@@ -416,6 +421,7 @@ struct HwndTerminal
         *out = returnText.release();
         return S_OK;
     }
+
     HRESULT IsSelectionActive(bool* out)
     {
         *out = _core.HasSelection();
@@ -435,16 +441,19 @@ struct HwndTerminal
         _connection->_pfnWriteCallback = callback;
         return S_OK;
     }
+
     HRESULT SendKeyEvent(WORD vkey, WORD scanCode, WORD flags, bool keyDown)
     {
         _core.TrySendKeyEvent(vkey, scanCode, getControlKeyState(), keyDown);
         return S_OK;
     }
+
     HRESULT SendCharEvent(wchar_t ch, WORD flags, WORD scanCode)
     {
         _core.SendCharEvent(ch, scanCode, getControlKeyState());
         return S_OK;
     }
+
     HRESULT BlinkCursor()
     {
         _core.CursorOn(!_core.CursorOn());
@@ -475,8 +484,8 @@ struct HwndTerminal
     }
 
 private:
-    winrt::com_ptr<NullConnection> _connection;
-    winrt::com_ptr<ThemeBasedTerminalSettings> _settingsBridge;
+    winrt::com_ptr<CsBridgeConnection> _connection;
+    winrt::com_ptr<CsBridgeTerminalSettings> _settingsBridge;
     ControlInteractivity _interactivity{ nullptr };
     ControlCore _core{ nullptr };
     bool _initialized{ false };
