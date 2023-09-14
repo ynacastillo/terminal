@@ -1456,7 +1456,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         else
         {
             const auto cursorPosition = point.Position();
-            _interactivity.PointerPressed(TermControl::GetPressedMouseButtons(point),
+            _interactivity.PointerPressed(point.PointerId(),
+                                          TermControl::GetPressedMouseButtons(point),
                                           TermControl::GetPointerUpdateKind(point),
                                           point.Timestamp(),
                                           ControlKeyStates{ args.KeyModifiers() },
@@ -1495,7 +1496,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         if (type == Windows::Devices::Input::PointerDeviceType::Mouse ||
             type == Windows::Devices::Input::PointerDeviceType::Pen)
         {
-            _interactivity.PointerMoved(TermControl::GetPressedMouseButtons(point),
+            _interactivity.PointerMoved(point.PointerId(),
+                                        TermControl::GetPressedMouseButtons(point),
                                         TermControl::GetPointerUpdateKind(point),
                                         ControlKeyStates(args.KeyModifiers()),
                                         _focused,
@@ -1574,7 +1576,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         if (type == Windows::Devices::Input::PointerDeviceType::Mouse ||
             type == Windows::Devices::Input::PointerDeviceType::Pen)
         {
-            _interactivity.PointerReleased(TermControl::GetPressedMouseButtons(point),
+            _interactivity.PointerReleased(point.PointerId(),
+                                           TermControl::GetPressedMouseButtons(point),
                                            TermControl::GetPointerUpdateKind(point),
                                            ControlKeyStates(args.KeyModifiers()),
                                            pixelPosition.to_core_point());
