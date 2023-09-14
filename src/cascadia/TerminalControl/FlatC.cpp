@@ -296,6 +296,17 @@ struct HwndTerminal
                 PointFromLParam(lParam));
             ReleaseCapture();
             return 0;
+        case WM_POINTERDOWN:
+            SetCapture(_hwnd.get());
+            _interactivity.TouchPressed(PointFromLParam(lParam));
+            return 0;
+        case WM_POINTERUPDATE:
+            _interactivity.TouchMoved(PointFromLParam(lParam), _focused);
+            return 0;
+        case WM_POINTERUP:
+            _interactivity.TouchReleased();
+            ReleaseCapture();
+            return 0;
         case WM_MOUSEWHEEL:
             if (_interactivity.MouseWheel(getControlKeyState(), GET_WHEEL_DELTA_WPARAM(wParam), PointFromLParam(lParam), MouseButtonStateFromWParam(wParam)))
             {
