@@ -304,9 +304,13 @@ struct HwndTerminal
             break;
         case WM_SETFOCUS:
             _interactivity.GotFocus();
+            _focused = true;
+            _core.ApplyAppearance(_focused);
             break;
         case WM_KILLFOCUS:
             _interactivity.LostFocus();
+            _focused = true;
+            _core.ApplyAppearance(_focused);
             break;
         }
 
@@ -433,6 +437,7 @@ struct HwndTerminal
         _settingsBridge->SetTheme(theme, fontFamily, fontSize, newDpi);
         _core.UpdateSettings(*_settingsBridge, nullptr);
         _interactivity.UpdateSettings();
+        _core.ApplyAppearance(_focused);
         return S_OK;
     }
 
@@ -479,6 +484,7 @@ struct HwndTerminal
             1.0,
             reinterpret_cast<uint64_t>(_hwnd.get()));
         _interactivity.Initialize();
+        _core.ApplyAppearance(_focused);
         _core.EnablePainting();
         _initialized = true;
     }
@@ -489,6 +495,7 @@ private:
     ControlInteractivity _interactivity{ nullptr };
     ControlCore _core{ nullptr };
     bool _initialized{ false };
+    bool _focused{ false };
     PSCROLLCB _scrollCallback{};
 
     void _scrollPositionChanged(const winrt::Windows::Foundation::IInspectable& i, const ScrollPositionChangedArgs& update)
