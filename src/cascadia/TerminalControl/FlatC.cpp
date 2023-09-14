@@ -370,7 +370,13 @@ struct HwndTerminal
         if (!_initialized)
             return S_FALSE;
         SetWindowPos(_hwnd.get(), nullptr, 0, 0, width, height, 0);
-        _core.SizeChanged(gsl::narrow_cast<float>(width), gsl::narrow_cast<float>(height));
+
+        // **NOTE** The sizes we get here are unscaled ...
+        auto dpi = GetDpiForWindow(_hwnd.get());
+        float w = static_cast<float>(width * USER_DEFAULT_SCREEN_DPI) / dpi;
+        float h = static_cast<float>(height * USER_DEFAULT_SCREEN_DPI) / dpi;
+        // ... but ControlCore expects scaled sizes.
+        _core.SizeChanged(w, h);
 
         // TODO(DH): ControlCore has no API that returns the new size in cells
         //wil::assign_to_opt_param(dimensions, /*thing*/);
@@ -437,6 +443,7 @@ struct HwndTerminal
         _settingsBridge->SetTheme(theme, fontFamily, fontSize, newDpi);
         _core.UpdateSettings(*_settingsBridge, nullptr);
         _interactivity.UpdateSettings();
+        _core.ScaleChanged((static_cast<float>(newDpi) / USER_DEFAULT_SCREEN_DPI));
         _core.ApplyAppearance(_focused);
         return S_OK;
     }
@@ -475,13 +482,14 @@ struct HwndTerminal
     {
         RECT windowRect;
         GetWindowRect(_hwnd.get(), &windowRect);
+        auto dpi = GetDpiForWindow(_hwnd.get());
         // BODGY: the +/-1 is because ControlCore will ignore an Initialize with zero size (oops)
         // becuase in the old days, TermControl would accidentally try to resize the Swap Chain to 0x0 (oops)
         // and therefore resize the connection to 0x0 (oops)
         _core.InitializeWithHwnd(
             gsl::narrow_cast<float>(windowRect.right - windowRect.left + 1),
             gsl::narrow_cast<float>(windowRect.bottom - windowRect.top + 1),
-            1.0,
+            (static_cast<float>(dpi) / USER_DEFAULT_SCREEN_DPI),
             reinterpret_cast<uint64_t>(_hwnd.get()));
         _interactivity.Initialize();
         _core.ApplyAppearance(_focused);
