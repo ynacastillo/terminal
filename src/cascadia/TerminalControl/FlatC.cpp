@@ -88,7 +88,7 @@ struct CsBridgeConnection : public winrt::implements<CsBridgeConnection, winrt::
     TYPED_EVENT(StateChanged, winrt::Microsoft::Terminal::TerminalConnection::ITerminalConnection, winrt::Windows::Foundation::IInspectable);
 
 public:
-    std::function<void(const wchar_t*)> _pfnWriteCallback{ nullptr };
+    PWRITECB _pfnWriteCallback{ nullptr };
     void OriginateOutputFromConnection(const wchar_t* data)
     {
         _TerminalOutputHandlers(winrt::to_hstring(data));
@@ -137,6 +137,7 @@ struct CsBridgeTerminalSettings : winrt::implements<CsBridgeTerminalSettings, IC
     {
         return static_cast<winrt::Microsoft::Terminal::Core::CursorStyle>(_theme.CursorStyle);
     }
+
     void DefaultForeground(const til::color&) {}
     void DefaultBackground(const til::color&) {}
     void SelectionBackground(const til::color&) {}
@@ -200,7 +201,7 @@ struct CsBridgeTerminalSettings : winrt::implements<CsBridgeTerminalSettings, IC
 public:
     void SetTheme(TerminalTheme theme, LPCWSTR fontFamily, til::CoordType fontSize, int newDpi)
     {
-        _theme = theme;
+        _theme = std::move(theme);
         _fontFace = fontFamily;
         _fontSize = static_cast<float>(fontSize);
     }
@@ -228,7 +229,7 @@ struct HwndTerminal
         {
             return terminal->WindowProc(hwnd, uMsg, wParam, lParam);
         }
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
     }
     catch (...)
     {
@@ -297,13 +298,25 @@ struct HwndTerminal
             ReleaseCapture();
             return 0;
         case WM_POINTERDOWN:
+            if (!IS_POINTER_INCONTACT_WPARAM(wParam))
+            {
+                break;
+            }
             SetCapture(_hwnd.get());
             _interactivity.TouchPressed(PointFromLParam(lParam));
             return 0;
         case WM_POINTERUPDATE:
+            if (!IS_POINTER_INCONTACT_WPARAM(wParam))
+            {
+                break;
+            }
             _interactivity.TouchMoved(PointFromLParam(lParam), _focused);
             return 0;
         case WM_POINTERUP:
+            if (!IS_POINTER_INCONTACT_WPARAM(wParam))
+            {
+                break;
+            }
             _interactivity.TouchReleased();
             ReleaseCapture();
             return 0;
@@ -505,6 +518,7 @@ struct HwndTerminal
         _interactivity.Initialize();
         _core.ApplyAppearance(_focused);
         _core.EnablePainting();
+
         _initialized = true;
     }
 

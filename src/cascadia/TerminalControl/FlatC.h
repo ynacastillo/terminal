@@ -12,7 +12,7 @@ typedef struct _TerminalTheme
     float SelectionBackgroundAlpha;
     uint32_t CursorStyle; // This will be converted to DispatchTypes::CursorStyle (size_t), but C# cannot marshal an enum type and have it fit in a size_t.
     COLORREF ColorTable[16];
-} TerminalTheme, *LPTerminalTheme;
+} TerminalTheme;
 
 using PTERM = void*;
 using PSCROLLCB = void(_stdcall*)(int, int, int);
