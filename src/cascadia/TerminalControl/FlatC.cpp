@@ -413,10 +413,10 @@ struct HwndTerminal
 
     HRESULT TriggerResizeWithDimension(_In_ til::size dimensions, _Out_ til::size* dimensionsInPixels)
     {
-        // TODO(DH): ControlCore has no API that resizes to a specific cell dimension
-        // TODO(DH): ControlCore has no API that returns the new size in pixels
-        //wil::assign_to_opt_param(dimensionsInPixels, /*thing*/);
-        return S_FALSE;
+        winrt::Windows::Foundation::Size outSizeInPixels;
+        _core.ResizeToDimensions(dimensions.width, dimensions.height, outSizeInPixels);
+        wil::assign_to_opt_param(dimensionsInPixels, til::size{ til::math::rounding, outSizeInPixels });
+        return S_OK;
     }
 
     HRESULT CalculateResize(_In_ til::CoordType width, _In_ til::CoordType height, _Out_ til::size* dimensions)

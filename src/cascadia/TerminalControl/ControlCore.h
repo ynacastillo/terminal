@@ -253,6 +253,9 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         void CursorBlinkTime(Windows::Foundation::TimeSpan v);
         void VtBlinkEnabled(bool v);
 
+        winrt::Windows::Foundation::Size RenderedSize();
+        void ResizeToDimensions(uint32_t width, uint32_t height, winrt::Windows::Foundation::Size& newSizeInPixels);
+
         RUNTIME_SETTING(double, Opacity, _settings->Opacity());
         RUNTIME_SETTING(bool, UseAcrylic, _settings->UseAcrylic());
 

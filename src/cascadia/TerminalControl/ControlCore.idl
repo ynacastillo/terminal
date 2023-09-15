@@ -164,6 +164,9 @@ namespace Microsoft.Terminal.Control
         Windows.Foundation.TimeSpan CursorBlinkTime { get; set; };
         Boolean VtBlinkEnabled { get; set; };
 
+        Windows.Foundation.Size RenderedSize { get; };
+        void ResizeToDimensions(UInt32 width, UInt32 height, out Windows.Foundation.Size newSizeInPixels);
+
         // These events are called from some background thread
         event Windows.Foundation.TypedEventHandler<Object, CopyToClipboardEventArgs> CopyToClipboard;
         event Windows.Foundation.TypedEventHandler<Object, TitleChangedEventArgs> TitleChanged;

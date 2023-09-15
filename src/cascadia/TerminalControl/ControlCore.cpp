@@ -2727,4 +2727,20 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         return _clickedOnMark(_contextMenuBufferPosition,
                               [](const ::ScrollMark& m) -> bool { return !m.HasOutput(); });
     }
+
+    winrt::Windows::Foundation::Size ControlCore::RenderedSize()
+    {
+        return { _panelWidth, _panelHeight };
+    }
+
+    void ControlCore::ResizeToDimensions(uint32_t width, uint32_t height, winrt::Windows::Foundation::Size& newSizeInPixels)
+    {
+        if (!_renderEngine)
+        {
+            throw winrt::hresult_error(E_INVALIDARG);
+        }
+        auto pixelSize = _renderEngine->GetViewportInPixels(Viewport::FromDimensions(til::size{ static_cast<til::CoordType>(width), static_cast<til::CoordType>(height) }));
+        SizeOrScaleChanged(static_cast<float>(pixelSize.Width()), static_cast<float>(pixelSize.Height()), _compositionScale);
+        newSizeInPixels = RenderedSize();
+    }
 }
