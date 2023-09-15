@@ -34,8 +34,6 @@ using PWRITECB = void(_stdcall*)(const wchar_t*);
     XX(SendCharEvent, wchar_t, ch, WORD, flags, WORD, scanCode)                                                \
     XX(SetCursorVisible, const bool, visible)
 
-//XX(ClearSelection)                                                                      \
-
 extern "C" {
 #define API_NAME(name) Terminal##name
 #define GENERATOR_0(name) \

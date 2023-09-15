@@ -366,7 +366,7 @@ struct HwndTerminal
                 hInstance,
                 nullptr));
 
-#pragma warning(suppress : 26490) // Win32 APIs can only store void*, have to use reinterpret_cast
+#pragma warning(suppress : 26490) // Win32 APIs can only store void*, so we have to use reinterpret_cast
             SetWindowLongPtr(_hwnd.get(), GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
         }
 
@@ -396,6 +396,7 @@ struct HwndTerminal
     {
         if (!_initialized)
             return S_FALSE;
+
         SetWindowPos(_hwnd.get(), nullptr, 0, 0, width, height, 0);
 
         // **NOTE** The sizes we get here are unscaled ...
@@ -413,6 +414,9 @@ struct HwndTerminal
 
     HRESULT TriggerResizeWithDimension(_In_ til::size dimensions, _Out_ til::size* dimensionsInPixels)
     {
+        if (!_initialized)
+            return S_FALSE;
+
         winrt::Windows::Foundation::Size outSizeInPixels;
         _core.ResizeToDimensions(dimensions.width, dimensions.height, outSizeInPixels);
         wil::assign_to_opt_param(dimensionsInPixels, til::size{ til::math::rounding, outSizeInPixels });
@@ -439,12 +443,6 @@ struct HwndTerminal
     HRESULT UserScroll(int viewTop)
     {
         _interactivity.UpdateScrollbar(viewTop);
-        return S_OK;
-    }
-
-    HRESULT ClearSelection()
-    {
-        _core.ClearSelection();
         return S_OK;
     }
 
@@ -505,7 +503,7 @@ struct HwndTerminal
         GetWindowRect(_hwnd.get(), &windowRect);
         auto dpi = GetDpiForWindow(_hwnd.get());
         // BODGY: the +/-1 is because ControlCore will ignore an Initialize with zero size (oops)
-        // becuase in the old days, TermControl would accidentally try to resize the Swap Chain to 0x0 (oops)
+        // because in the old days, TermControl would accidentally try to resize the Swap Chain to 0x0 (oops)
         // and therefore resize the connection to 0x0 (oops)
         _core.InitializeWithHwnd(
             gsl::narrow_cast<float>(windowRect.right - windowRect.left + 1),
