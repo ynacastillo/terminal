@@ -273,6 +273,7 @@ struct HwndTerminal
         case WM_RBUTTONDOWN:
             SetCapture(_hwnd.get());
             _interactivity.PointerPressed(
+                0, // Mouse
                 MouseButtonStateFromWParam(wParam),
                 uMsg,
                 std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count(),
@@ -281,17 +282,17 @@ struct HwndTerminal
             return 0;
         case WM_MOUSEMOVE:
             _interactivity.PointerMoved(
+                0, // Mouse
                 MouseButtonStateFromWParam(wParam),
                 WM_MOUSEMOVE,
                 getControlKeyState(),
-                true,
-                PointFromLParam(lParam),
-                true);
+                PointFromLParam(lParam));
             return 0;
         case WM_LBUTTONUP:
         case WM_MBUTTONUP:
         case WM_RBUTTONUP:
             _interactivity.PointerReleased(
+                0, // Mouse
                 MouseButtonStateFromWParam(wParam),
                 uMsg,
                 getControlKeyState(),
@@ -311,7 +312,7 @@ struct HwndTerminal
             {
                 break;
             }
-            _interactivity.TouchMoved(PointFromLParam(lParam), _focused);
+            _interactivity.TouchMoved(PointFromLParam(lParam));
             return 0;
         case WM_POINTERUP:
             if (!IS_POINTER_INCONTACT_WPARAM(wParam))
