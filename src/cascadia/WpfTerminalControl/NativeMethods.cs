@@ -227,9 +227,6 @@ namespace Microsoft.Terminal.Wpf
         public static extern void TerminalSetTheme(IntPtr terminal, [MarshalAs(UnmanagedType.Struct)] TerminalTheme theme, string fontFamily, short fontSize, int newDpi);
 
         [DllImport("Microsoft.Terminal.Control.dll", CallingConvention = CallingConvention.StdCall, PreserveSig = false)]
-        public static extern void TerminalBlinkCursor(IntPtr terminal);
-
-        [DllImport("Microsoft.Terminal.Control.dll", CallingConvention = CallingConvention.StdCall, PreserveSig = false)]
         public static extern void TerminalSetCursorVisible(IntPtr terminal, bool visible);
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -240,9 +237,6 @@ namespace Microsoft.Terminal.Wpf
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern short GetKeyState(int keyCode);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern uint GetCaretBlinkTime();
 
         [StructLayout(LayoutKind.Sequential)]
         public struct WINDOWPOS

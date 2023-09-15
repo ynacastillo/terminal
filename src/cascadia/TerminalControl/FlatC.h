@@ -32,7 +32,6 @@ using PWRITECB = void(_stdcall*)(const wchar_t*);
     XX(RegisterWriteCallback, PWRITECB, callback)                                                              \
     XX(SendKeyEvent, WORD, vkey, WORD, scanCode, WORD, flags, bool, keyDown)                                   \
     XX(SendCharEvent, wchar_t, ch, WORD, flags, WORD, scanCode)                                                \
-    XX(BlinkCursor)                                                                                            \
     XX(SetCursorVisible, const bool, visible)
 
 //XX(ClearSelection)                                                                      \

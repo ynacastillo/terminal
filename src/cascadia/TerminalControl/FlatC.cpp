@@ -493,12 +493,6 @@ struct HwndTerminal
         return S_OK;
     }
 
-    HRESULT BlinkCursor()
-    {
-        _core.CursorOn(!_core.CursorOn());
-        return S_OK;
-    }
-
     HRESULT SetCursorVisible(const bool visible)
     {
         _core.CursorOn(visible);
@@ -520,6 +514,13 @@ struct HwndTerminal
             reinterpret_cast<uint64_t>(_hwnd.get()));
         _interactivity.Initialize();
         _core.ApplyAppearance(_focused);
+
+        int blinkTime = GetCaretBlinkTime();
+        auto animationsEnabled = TRUE;
+        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsEnabled, 0);
+        _core.CursorBlinkTime(std::chrono::milliseconds(blinkTime == INFINITE ? 0 : blinkTime));
+        _core.VtBlinkEnabled(animationsEnabled);
+
         _core.EnablePainting();
 
         _initialized = true;

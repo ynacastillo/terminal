@@ -16,5 +16,4 @@ TerminalSetTheme
 TerminalRegisterWriteCallback
 TerminalSendKeyEvent
 TerminalSendCharEvent
-TerminalBlinkCursor
 TerminalSetCursorVisible
