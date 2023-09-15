@@ -154,7 +154,6 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
     void ControlCore::_setupDispatcherAndCallbacks()
     {
-        /* TODO(DH) */ return;
         // Get our dispatcher. If we're hosted in-proc with XAML, this will get
         // us the same dispatcher as TermControl::Dispatcher(). If we're out of
         // proc, this'll return null. We'll need to instead make a new
