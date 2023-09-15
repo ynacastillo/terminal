@@ -246,6 +246,16 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         shared->tsfTryRedrawCanvas.reset();
         shared->updatePatternLocations.reset();
         shared->updateScrollBar.reset();
+        if (_cursorTimer)
+        {
+            _cursorTimer.Stop();
+            _cursorTimer = nullptr;
+        }
+        if (_blinkTimer)
+        {
+            _blinkTimer.Stop();
+            _blinkTimer = nullptr;
+        }
     }
 
     void ControlCore::AttachToNewControl(const Microsoft::Terminal::Control::IKeyBindings& keyBindings)
