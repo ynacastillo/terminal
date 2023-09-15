@@ -197,6 +197,7 @@ struct CsBridgeTerminalSettings : winrt::implements<CsBridgeTerminalSettings, IC
     HARDCODED_PROPERTY(bool, RightClickContextMenu, false);
     HARDCODED_PROPERTY(winrt::hstring, CellWidth, L"");
     HARDCODED_PROPERTY(winrt::hstring, CellHeight, L"");
+    HARDCODED_PROPERTY(bool, RepositionCursorWithMouse, false);
 
 public:
     void SetTheme(TerminalTheme theme, LPCWSTR fontFamily, til::CoordType fontSize, int newDpi)
