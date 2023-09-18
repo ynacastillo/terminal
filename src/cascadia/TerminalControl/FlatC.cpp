@@ -6,6 +6,10 @@
 #include "../types/inc/colorTable.hpp"
 #include "../inc/DefaultSettings.h"
 #include "../inc/cppwinrt_utils.h"
+
+#include "ControlCore.h"
+#include "ControlInteractivity.h"
+
 #include <windowsx.h>
 
 #pragma warning(disable : 4100)
@@ -273,7 +277,7 @@ struct HwndTerminal
         case WM_MBUTTONDOWN:
         case WM_RBUTTONDOWN:
             SetCapture(_hwnd.get());
-            _interactivity.PointerPressed(
+            _interactivity->PointerPressed(
                 0, // Mouse
                 MouseButtonStateFromWParam(wParam),
                 uMsg,
@@ -282,7 +286,7 @@ struct HwndTerminal
                 PointFromLParam(lParam));
             return 0;
         case WM_MOUSEMOVE:
-            _interactivity.PointerMoved(
+            _interactivity->PointerMoved(
                 0, // Mouse
                 MouseButtonStateFromWParam(wParam),
                 WM_MOUSEMOVE,
@@ -292,7 +296,7 @@ struct HwndTerminal
         case WM_LBUTTONUP:
         case WM_MBUTTONUP:
         case WM_RBUTTONUP:
-            _interactivity.PointerReleased(
+            _interactivity->PointerReleased(
                 0, // Mouse
                 MouseButtonStateFromWParam(wParam),
                 uMsg,
@@ -306,38 +310,38 @@ struct HwndTerminal
                 break;
             }
             SetCapture(_hwnd.get());
-            _interactivity.TouchPressed(PointFromLParam(lParam));
+            _interactivity->TouchPressed(PointFromLParam(lParam));
             return 0;
         case WM_POINTERUPDATE:
             if (!IS_POINTER_INCONTACT_WPARAM(wParam))
             {
                 break;
             }
-            _interactivity.TouchMoved(PointFromLParam(lParam));
+            _interactivity->TouchMoved(PointFromLParam(lParam));
             return 0;
         case WM_POINTERUP:
             if (!IS_POINTER_INCONTACT_WPARAM(wParam))
             {
                 break;
             }
-            _interactivity.TouchReleased();
+            _interactivity->TouchReleased();
             ReleaseCapture();
             return 0;
         case WM_MOUSEWHEEL:
-            if (_interactivity.MouseWheel(getControlKeyState(), GET_WHEEL_DELTA_WPARAM(wParam), PointFromLParam(lParam), MouseButtonStateFromWParam(wParam)))
+            if (_interactivity->MouseWheel(getControlKeyState(), GET_WHEEL_DELTA_WPARAM(wParam), PointFromLParam(lParam), MouseButtonStateFromWParam(wParam)))
             {
                 return 0;
             }
             break;
         case WM_SETFOCUS:
-            _interactivity.GotFocus();
+            _interactivity->GotFocus();
             _focused = true;
-            _core.ApplyAppearance(_focused);
+            _core->ApplyAppearance(_focused);
             break;
         case WM_KILLFOCUS:
-            _interactivity.LostFocus();
+            _interactivity->LostFocus();
             _focused = true;
-            _core.ApplyAppearance(_focused);
+            _core->ApplyAppearance(_focused);
             break;
         }
 
@@ -372,11 +376,11 @@ struct HwndTerminal
 
         _settingsBridge = winrt::make_self<CsBridgeTerminalSettings>();
         _connection = winrt::make_self<CsBridgeConnection>();
-        _interactivity = ControlInteractivity{ *_settingsBridge, nullptr, *_connection };
-        _core = _interactivity.Core();
+        _interactivity = winrt::make_self<implementation::ControlInteractivity>(*_settingsBridge, nullptr, *_connection);
+        _core.copy_from(winrt::get_self<implementation::ControlCore>(_interactivity->Core()));
 
-        _core.ScrollPositionChanged({ this, &HwndTerminal::_scrollPositionChanged });
-        _interactivity.ScrollPositionChanged({ this, &HwndTerminal::_scrollPositionChanged });
+        _core->ScrollPositionChanged({ this, &HwndTerminal::_scrollPositionChanged });
+        _interactivity->ScrollPositionChanged({ this, &HwndTerminal::_scrollPositionChanged });
     }
 
     /*( PUBLIC API )*/
@@ -404,7 +408,7 @@ struct HwndTerminal
         float w = static_cast<float>(width * USER_DEFAULT_SCREEN_DPI) / dpi;
         float h = static_cast<float>(height * USER_DEFAULT_SCREEN_DPI) / dpi;
         // ... but ControlCore expects scaled sizes.
-        _core.SizeChanged(w, h);
+        _core->SizeChanged(w, h);
 
         // TODO(DH): ControlCore has no API that returns the new size in cells
         //wil::assign_to_opt_param(dimensions, /*thing*/);
@@ -418,7 +422,7 @@ struct HwndTerminal
             return S_FALSE;
 
         winrt::Windows::Foundation::Size outSizeInPixels;
-        _core.ResizeToDimensions(dimensions.width, dimensions.height, outSizeInPixels);
+        _core->ResizeToDimensions(dimensions.width, dimensions.height, outSizeInPixels);
         wil::assign_to_opt_param(dimensionsInPixels, til::size{ til::math::rounding, outSizeInPixels });
         return S_OK;
     }
@@ -426,7 +430,7 @@ struct HwndTerminal
     HRESULT CalculateResize(_In_ til::CoordType width, _In_ til::CoordType height, _Out_ til::size* dimensions)
     {
         // TODO(DH): It seems weird to have to do this manually.
-        auto fontSizeInPx = _core.FontSize();
+        auto fontSizeInPx = _core->FontSize();
         wil::assign_to_opt_param(dimensions, til::size{
                                                  static_cast<til::CoordType>(width / fontSizeInPx.Width),
                                                  static_cast<til::CoordType>(height / fontSizeInPx.Height),
@@ -436,19 +440,19 @@ struct HwndTerminal
 
     HRESULT DpiChanged(int newDpi)
     {
-        _core.ScaleChanged((float)newDpi / 96.0f);
+        _core->ScaleChanged((float)newDpi / 96.0f);
         return S_OK;
     }
 
     HRESULT UserScroll(int viewTop)
     {
-        _interactivity.UpdateScrollbar(viewTop);
+        _interactivity->UpdateScrollbar(viewTop);
         return S_OK;
     }
 
     HRESULT GetSelection(const wchar_t** out)
     {
-        auto strings = _core.SelectedText(true);
+        auto strings = _core->SelectedText(true);
         auto concatenated = std::accumulate(std::begin(strings), std::end(strings), std::wstring{}, [](auto&& l, auto&& r) {
             return l + r;
         });
@@ -459,17 +463,17 @@ struct HwndTerminal
 
     HRESULT IsSelectionActive(bool* out)
     {
-        *out = _core.HasSelection();
+        *out = _core->HasSelection();
         return S_OK;
     }
 
     HRESULT SetTheme(TerminalTheme theme, LPCWSTR fontFamily, til::CoordType fontSize, int newDpi)
     {
         _settingsBridge->SetTheme(theme, fontFamily, fontSize, newDpi);
-        _core.UpdateSettings(*_settingsBridge, nullptr);
-        _interactivity.UpdateSettings();
-        _core.ScaleChanged((static_cast<float>(newDpi) / USER_DEFAULT_SCREEN_DPI));
-        _core.ApplyAppearance(_focused);
+        _core->UpdateSettings(*_settingsBridge, nullptr);
+        _interactivity->UpdateSettings();
+        _core->ScaleChanged((static_cast<float>(newDpi) / USER_DEFAULT_SCREEN_DPI));
+        _core->ApplyAppearance(_focused);
         return S_OK;
     }
 
@@ -481,19 +485,19 @@ struct HwndTerminal
 
     HRESULT SendKeyEvent(WORD vkey, WORD scanCode, WORD flags, bool keyDown)
     {
-        _core.TrySendKeyEvent(vkey, scanCode, getControlKeyState(), keyDown);
+        _core->TrySendKeyEvent(vkey, scanCode, getControlKeyState(), keyDown);
         return S_OK;
     }
 
     HRESULT SendCharEvent(wchar_t ch, WORD flags, WORD scanCode)
     {
-        _core.SendCharEvent(ch, scanCode, getControlKeyState());
+        _core->SendCharEvent(ch, scanCode, getControlKeyState());
         return S_OK;
     }
 
     HRESULT SetCursorVisible(const bool visible)
     {
-        _core.CursorOn(visible);
+        _core->CursorOn(visible);
         return S_OK;
     }
 
@@ -505,21 +509,21 @@ struct HwndTerminal
         // BODGY: the +/-1 is because ControlCore will ignore an Initialize with zero size (oops)
         // because in the old days, TermControl would accidentally try to resize the Swap Chain to 0x0 (oops)
         // and therefore resize the connection to 0x0 (oops)
-        _core.InitializeWithHwnd(
+        _core->InitializeWithHwnd(
             gsl::narrow_cast<float>(windowRect.right - windowRect.left + 1),
             gsl::narrow_cast<float>(windowRect.bottom - windowRect.top + 1),
             (static_cast<float>(dpi) / USER_DEFAULT_SCREEN_DPI),
             reinterpret_cast<uint64_t>(_hwnd.get()));
-        _interactivity.Initialize();
-        _core.ApplyAppearance(_focused);
+        _interactivity->Initialize();
+        _core->ApplyAppearance(_focused);
 
         int blinkTime = GetCaretBlinkTime();
         auto animationsEnabled = TRUE;
         SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsEnabled, 0);
-        _core.CursorBlinkTime(std::chrono::milliseconds(blinkTime == INFINITE ? 0 : blinkTime));
-        _core.VtBlinkEnabled(animationsEnabled);
+        _core->CursorBlinkTime(std::chrono::milliseconds(blinkTime == INFINITE ? 0 : blinkTime));
+        _core->VtBlinkEnabled(animationsEnabled);
 
-        _core.EnablePainting();
+        _core->EnablePainting();
 
         _initialized = true;
     }
@@ -527,8 +531,8 @@ struct HwndTerminal
 private:
     winrt::com_ptr<CsBridgeConnection> _connection;
     winrt::com_ptr<CsBridgeTerminalSettings> _settingsBridge;
-    ControlInteractivity _interactivity{ nullptr };
-    ControlCore _core{ nullptr };
+    winrt::com_ptr<implementation::ControlInteractivity> _interactivity{ nullptr };
+    winrt::com_ptr<implementation::ControlCore> _core{ nullptr };
     bool _initialized{ false };
     bool _focused{ false };
     PSCROLLCB _scrollCallback{};
