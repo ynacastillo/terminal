@@ -113,7 +113,7 @@
   <!--LATE LATE LATE-->
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalDependencies>delayimp.lib;uiautomationcore.lib;oleaut32.lib;onecoreuap.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>delayimp.lib;uiautomationcore.lib;oleaut32.lib;onecoreuap.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <DelayLoadDLLs>uiautomationcore.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>

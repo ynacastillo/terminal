@@ -70,8 +70,6 @@
       <DependentUpon>TSFInputControl.xaml</DependentUpon>
     </ClInclude>
     <ClInclude Include="XamlUiaTextRange.h" />
-    <ClInclude Include="HwndTerminal.hpp" />
-    <ClInclude Include="HwndTerminalAutomationPeer.hpp" />
   </ItemGroup>
   <!-- ========================= Cpp Files ======================== -->
   <ItemGroup>
@@ -115,8 +113,6 @@
       <DependentUpon>InteractivityAutomationPeer.idl</DependentUpon>
     </ClCompile>
     <ClCompile Include="XamlUiaTextRange.cpp" />
-    <ClCompile Include="HwndTerminal.cpp" />
-    <ClCompile Include="HwndTerminalAutomationPeer.cpp" />
   </ItemGroup>
   <!-- ========================= idl Files ======================== -->
   <ItemGroup>
