@@ -47,19 +47,18 @@ static inline std::wstring _colorize(const unsigned int colorCode, const std::ws
 template<typename... Args>
 static inline std::wstring _formatResWithColoredUserInputOptions(const std::wstring_view resourceKey, Args&&... args)
 {
-    const auto f = GetLibraryResourceString(resourceKey);
-    const auto ff = std::wstring_view{ f };
-    return fmt::format(fmt::runtime(ff), (_colorize(USER_INPUT_COLOR, GetLibraryResourceString(args)))...);
+    const auto format = GetLibraryResourceString(resourceKey);
+    return fmt::format(fmt::runtime(std::wstring_view{ format }), (_colorize(USER_INPUT_COLOR, GetLibraryResourceString(args)))...);
 }
 
 static inline std::wstring _formatTenant(int tenantNumber, const Tenant& tenant)
 {
-    const auto f = RS_(L"AzureIthTenant");
-    const auto ff = std::wstring_view{ f };
-    return fmt::format(fmt::runtime(ff),
-                       _colorize(USER_INPUT_COLOR, std::to_wstring(tenantNumber)),
-                       _colorize(USER_INFO_COLOR, tenant.DisplayName.value_or(std::wstring{ RS_(L"AzureUnknownTenantName") })),
-                       tenant.DefaultDomain.value_or(tenant.ID)); // use the domain name if possible, ID if not.
+    return RS_fmt(
+        L"AzureIthTenant",
+        _colorize(USER_INPUT_COLOR, std::to_wstring(tenantNumber)),
+        _colorize(USER_INFO_COLOR, tenant.DisplayName.value_or(std::wstring{ RS_(L"AzureUnknownTenantName") })),
+        tenant.DefaultDomain.value_or(tenant.ID) // use the domain name if possible, ID if not.
+    );
 }
 
 namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
