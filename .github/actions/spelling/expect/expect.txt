@@ -2239,6 +2239,7 @@ XBUTTONDOWN
 XBUTTONUP
 XCast
 XCENTER
+xchar
 XColors
 xcopy
 XCount
