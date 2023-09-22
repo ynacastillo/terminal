@@ -80,8 +80,6 @@ namespace Microsoft::Console::Render
         [[nodiscard]] HRESULT WriteTerminalUtf8(const std::string_view str) noexcept;
         [[nodiscard]] virtual HRESULT WriteTerminalW(const std::wstring_view str) noexcept = 0;
         void SetTerminalOwner(Microsoft::Console::VirtualTerminal::VtIo* const terminalOwner);
-        void BeginResizeRequest();
-        void EndResizeRequest();
         void SetResizeQuirk(const bool resizeQuirk);
         void SetPassthroughMode(const bool passthrough) noexcept;
         void SetLookingForDSRCallback(std::function<void(bool)> pfnLooking) noexcept;
