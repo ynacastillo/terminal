@@ -28,6 +28,7 @@ CYICON
 Dacl
 dataobject
 dcomp
+debugbreak
 delayimp
 DERR
 dlldata
@@ -52,6 +53,7 @@ futex
 GETDESKWALLPAPER
 GETHIGHCONTRAST
 GETMOUSEHOVERTIME
+GETTEXTLENGTH
 Hashtable
 HIGHCONTRASTON
 HIGHCONTRASTW
@@ -186,6 +188,7 @@ snprintf
 spsc
 sregex
 SRWLOC
+srwlock
 SRWLOCK
 STDCPP
 STDMETHOD
@@ -217,16 +220,19 @@ UFIELD
 ULARGE
 UOI
 UPDATEINIFILE
+urlmon
 userenv
 USEROBJECTFLAGS
 Vcpp
 Viewbox
 virtualalloc
 vsnwprintf
+wcsnlen
 wcsstr
 wcstoui
 WDJ
 winhttp
+wininet
 winmain
 winsta
 winstamin

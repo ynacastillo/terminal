@@ -23,6 +23,12 @@ parameters:
   - name: jobName
     type: string
     default: Bundle
+  - name: variables
+    type: object
+    default: {}
+  - name: publishArtifacts
+    type: boolean
+    default: true
 
 jobs:
 - job: ${{ parameters.jobName }}
@@ -42,8 +48,13 @@ jobs:
       BundleStemName: Microsoft.WindowsTerminal
     ${{ elseif eq(parameters.branding, 'Preview') }}:
       BundleStemName: Microsoft.WindowsTerminalPreview
+    ${{ elseif eq(parameters.branding, 'Canary') }}:
+      BundleStemName: Microsoft.WindowsTerminalCanary
     ${{ else }}:
       BundleStemName: WindowsTerminalDev
+    JobOutputDirectory: '$(System.ArtifactsDirectory)/bundle'
+    JobOutputArtifactName: appxbundle-$(BuildConfiguration)${{ parameters.artifactStem }}
+    ${{ insert }}: ${{ parameters.variables }}
   dependsOn: ${{ parameters.dependsOn }}
   steps:
   - checkout: self
@@ -78,7 +89,7 @@ jobs:
     displayName: Create msixbundle
 
   - ${{ if eq(parameters.codeSign, true) }}:
-    - task: EsrpCodeSigning@1
+    - task: EsrpCodeSigning@3
       displayName: Submit *.msixbundle to ESRP for code signing
       inputs:
         ConnectedServiceName: 9d6d2960-0793-4d59-943e-78dcb434840a
@@ -128,6 +139,7 @@ jobs:
         ValidateSignature: true
         Verbosity: 'Verbose'
 
-  - publish: '$(System.ArtifactsDirectory)/bundle'
-    artifact: appxbundle-$(BuildConfiguration)${{ parameters.artifactStem }}
-    displayName: Publish msixbundle
+  - ${{ if eq(parameters.publishArtifacts, true) }}:
+    - publish: $(JobOutputDirectory)
+      artifact: $(JobOutputArtifactName)
+      displayName: Publish msixbundle
