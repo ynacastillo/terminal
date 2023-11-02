@@ -12,9 +12,6 @@
 #undef MapVirtualKeyW
 #undef GetKeyState
 
-static BYTE ColorArray[4];
-static int iColor;
-
 // Routine Description:
 // - Window proc for the color buttons
 [[nodiscard]] LRESULT CALLBACK ColorTableControlProc(HWND hColor, UINT wMsg, WPARAM wParam, LPARAM lParam)

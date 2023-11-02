@@ -83,12 +83,6 @@ void Clipboard::Paste()
     CloseClipboard();
 }
 
-Clipboard& Clipboard::Instance()
-{
-    static Clipboard clipboard;
-    return clipboard;
-}
-
 // Routine Description:
 // - This routine pastes given Unicode string into the console window.
 // Arguments:

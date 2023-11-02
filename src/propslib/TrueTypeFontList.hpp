@@ -18,8 +18,6 @@ Author(s):
 class TrueTypeFontList
 {
 public:
-    static SINGLE_LIST_ENTRY s_ttFontList;
-
     [[nodiscard]] static NTSTATUS s_Initialize();
     [[nodiscard]] static NTSTATUS s_Destroy();
 

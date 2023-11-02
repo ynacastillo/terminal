@@ -13,7 +13,6 @@
 #include <shlguid.h>
 
 #define PEMAGIC ((WORD)'P' + ((WORD)'E' << 8))
-static CONSOLE_STATE_INFO g_csi;
 
 using namespace Microsoft::WRL;
 

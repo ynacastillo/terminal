@@ -31,18 +31,6 @@ Icon::~Icon()
 }
 
 // Routine Description:
-// - Returns the singleton instance of the Icon
-// Arguments:
-// - <none>
-// Return Value:
-// - Reference to the singleton.
-Icon& Icon::Instance()
-{
-    static Icon i;
-    return i;
-}
-
-// Routine Description:
 // - Gets the requested icons. Will return default icons if no icons have been set.
 // Arguments:
 // - phIcon - The large icon representation.

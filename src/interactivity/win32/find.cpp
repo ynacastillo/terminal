@@ -20,12 +20,6 @@ using namespace Microsoft::Console::Interactivity;
 INT_PTR CALLBACK FindDialogProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam)
 {
     auto& gci = ServiceLocator::LocateGlobals().getConsoleInformation();
-    // This bool is used to track which option - up or down - was used to perform the last search. That way, the next time the
-    //   find dialog is opened, it will default to the last used option.
-    static auto reverse = true;
-    static auto caseInsensitive = true;
-    static std::wstring lastFindString;
-    static Search searcher;
 
     switch (Message)
     {

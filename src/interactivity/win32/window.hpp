@@ -112,7 +112,7 @@ namespace Microsoft::Console::Interactivity::Win32
                                            _In_ SCREEN_INFORMATION* const pScreen);
         void _CloseWindow() const;
 
-        static ATOM s_atomWindowClass;
+        ATOM s_atomWindowClass;
         Settings* _pSettings;
 
         HWND _hWnd;

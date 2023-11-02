@@ -18,26 +18,15 @@ Author(s):
 class NtPrivApi sealed
 {
 public:
-    [[nodiscard]] static NTSTATUS s_GetProcessParentId(_Inout_ PULONG ProcessId);
+    NtPrivApi() noexcept;
 
-    ~NtPrivApi();
+    [[nodiscard]] NTSTATUS GetProcessParentId(_Inout_ PULONG ProcessId) const noexcept;
 
 private:
-    [[nodiscard]] static NTSTATUS s_NtOpenProcess(_Out_ PHANDLE ProcessHandle,
-                                                  _In_ ACCESS_MASK DesiredAccess,
-                                                  _In_ POBJECT_ATTRIBUTES ObjectAttributes,
-                                                  _In_opt_ CLIENT_ID* ClientId);
-
-    [[nodiscard]] static NTSTATUS s_NtQueryInformationProcess(_In_ HANDLE ProcessHandle,
-                                                              _In_ PROCESSINFOCLASS ProcessInformationClass,
-                                                              _Out_ PVOID ProcessInformation,
-                                                              _In_ ULONG ProcessInformationLength,
-                                                              _Out_opt_ PULONG ReturnLength);
-
-    [[nodiscard]] static NTSTATUS s_NtClose(_In_ HANDLE Handle);
-
-    static NtPrivApi& _Instance();
-    HMODULE _hNtDll;
-
-    NtPrivApi();
+    // clang-format off
+    NTSTATUS(*_fnNtOpenProcess)(HANDLE ProcessHandle, ACCESS_MASK DesiredAccess, POBJECT_ATTRIBUTES ObjectAttributes, CLIENT_ID* ClientId) = nullptr;
+    NTSTATUS(*_fnNtQueryInformationProcess)(HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass, PVOID ProcessInformation, ULONG ProcessInformationLength, PULONG ReturnLength) = nullptr;
+    NTSTATUS(*_fnNtClose)(HANDLE Handle) = nullptr;
+    // clang-format no
+    bool _complete = false;
 };

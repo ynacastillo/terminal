@@ -18,18 +18,6 @@ WinNTControl::WinNTControl() :
 }
 
 // Routine Description:
-// - Provides the singleton pattern for WinNT control. Stores the single instance and returns it.
-// Arguments:
-// - <none>
-// Return Value:
-// - Reference to the single instance of NTDLL.dll wrapped methods.
-WinNTControl& WinNTControl::GetInstance()
-{
-    static WinNTControl Instance;
-    return Instance;
-}
-
-// Routine Description:
 // - Provides access to the NtOpenFile method documented at:
 //   https://msdn.microsoft.com/en-us/library/bb432381(v=vs.85).aspx
 // Arguments:
