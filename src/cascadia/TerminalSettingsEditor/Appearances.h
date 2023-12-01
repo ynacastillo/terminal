@@ -59,11 +59,6 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
     public:
         AppearanceViewModel(const Model::AppearanceConfig& appearance);
 
-        double LineHeight() const noexcept;
-        void LineHeight(const double value);
-        bool HasLineHeight() const;
-        void ClearLineHeight();
-        Model::FontConfig LineHeightOverrideSource() const;
         void SetFontWeightFromDouble(double fontWeight);
         void SetBackgroundImageOpacityFromPercentageValue(double percentageValue);
         void SetBackgroundImagePath(winrt::hstring path);
@@ -87,6 +82,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), FontFace);
         OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), FontSize);
         OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), FontWeight);
+        OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), CellHeight);
 
         OBSERVABLE_PROJECTED_SETTING(_appearance, RetroTerminalEffect);
         OBSERVABLE_PROJECTED_SETTING(_appearance, CursorShape);

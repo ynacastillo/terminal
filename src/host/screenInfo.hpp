@@ -59,7 +59,8 @@ class SCREEN_INFORMATION : public ConsoleObjectHeader, public Microsoft::Console
 {
 public:
     [[nodiscard]] static NTSTATUS CreateInstance(_In_ til::size coordWindowSize,
-                                                 const FontInfo fontInfo,
+                                                 const FontInfoDesired& fontInfoDesired,
+                                                 const FontInfo& fontInfo,
                                                  _In_ til::size coordScreenBufferSize,
                                                  const TextAttribute defaultAttributes,
                                                  const TextAttribute popupAttributes,
@@ -91,7 +92,7 @@ public:
     Microsoft::Console::Types::Viewport GetTerminalBufferSize() const;
 
     til::size GetScreenFontSize() const;
-    void UpdateFont(const FontInfo* const pfiNewFont);
+    void UpdateFont(const FontInfoDesired& pfiNewFont);
     void RefreshFontWithRenderer();
 
     [[nodiscard]] NTSTATUS ResizeScreenBuffer(const til::size coordNewScreenSize, const bool fDoScrollBarUpdate);
@@ -216,6 +217,7 @@ public:
 
     FontInfo& GetCurrentFont() noexcept;
     const FontInfo& GetCurrentFont() const noexcept;
+    til::size GetWhackyConhostFontSize() const noexcept;
 
     FontInfoDesired& GetDesiredFont() noexcept;
     const FontInfoDesired& GetDesiredFont() const noexcept;
@@ -227,7 +229,8 @@ private:
     SCREEN_INFORMATION(_In_ Microsoft::Console::Interactivity::IWindowMetrics* pMetrics,
                        _In_ Microsoft::Console::Interactivity::IAccessibilityNotifier* pNotifier,
                        const TextAttribute popupAttributes,
-                       const FontInfo fontInfo);
+                       const FontInfoDesired& fontInfoDesired,
+                       const FontInfo& fontInfo);
 
     Microsoft::Console::Interactivity::IWindowMetrics* _pConsoleWindowMetrics;
     Microsoft::Console::Interactivity::IAccessibilityNotifier* _pAccessibilityNotifier;

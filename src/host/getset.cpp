@@ -235,7 +235,7 @@ void ApiRoutines::GetNumberOfConsoleMouseButtonsImpl(ULONG& buttons) noexcept
         if (index == 0)
         {
             // As of the November 2015 renderer system, we only have a single font at index 0.
-            size = context.GetActiveBuffer().GetCurrentFont().GetUnscaledSize();
+            size = context.GetActiveBuffer().GetWhackyConhostFontSize();
             return S_OK;
         }
         else
@@ -274,7 +274,7 @@ void ApiRoutines::GetNumberOfConsoleMouseButtonsImpl(ULONG& buttons) noexcept
         }
         else
         {
-            WindowSize = activeScreenInfo.GetCurrentFont().GetUnscaledSize();
+            WindowSize = activeScreenInfo.GetWhackyConhostFontSize();
         }
         consoleFontInfoEx.dwFontSize = til::unwrap_coord_size(WindowSize);
 
@@ -308,19 +308,16 @@ void ApiRoutines::GetNumberOfConsoleMouseButtonsImpl(ULONG& buttons) noexcept
         LockConsole();
         auto Unlock = wil::scope_exit([&] { UnlockConsole(); });
 
-        auto& activeScreenInfo = context.GetActiveBuffer();
-
-        WCHAR FaceName[ARRAYSIZE(consoleFontInfoEx.FaceName)];
-        RETURN_IF_FAILED(StringCchCopyW(FaceName, ARRAYSIZE(FaceName), consoleFontInfoEx.FaceName));
-
-        FontInfo fi(FaceName,
-                    gsl::narrow_cast<unsigned char>(consoleFontInfoEx.FontFamily),
-                    consoleFontInfoEx.FontWeight,
-                    til::wrap_coord_size(consoleFontInfoEx.dwFontSize),
-                    gci.OutputCP);
+        FontInfoDesired fi{
+            consoleFontInfoEx.FaceName,
+            gsl::narrow_cast<unsigned char>(consoleFontInfoEx.FontFamily),
+            consoleFontInfoEx.FontWeight,
+            gci.OutputCP,
+            til::wrap_coord_size(consoleFontInfoEx.dwFontSize),
+        };
 
         // TODO: MSFT: 9574827 - should this have a failure case?
-        activeScreenInfo.UpdateFont(&fi);
+        context.GetActiveBuffer().UpdateFont(fi);
 
         return S_OK;
     }

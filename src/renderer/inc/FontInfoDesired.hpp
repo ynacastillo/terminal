@@ -19,32 +19,37 @@ Author(s):
 #pragma once
 
 #include "FontInfoBase.hpp"
-#include "FontInfo.hpp"
-#include "CSSLengthPercentage.h"
+#include "IFontDefaultList.hpp"
 
-class FontInfoDesired : public FontInfoBase
+struct FontInfoDesired : FontInfoBase
 {
-public:
-    FontInfoDesired(const std::wstring_view& faceName,
-                    const unsigned char family,
-                    const unsigned int weight,
-                    const float fontSize,
-                    const unsigned int uiCodePage) noexcept;
-    FontInfoDesired(const FontInfo& fiFont) noexcept;
+    FontInfoDesired(
+        std::wstring faceName,
+        const unsigned char family,
+        const unsigned int weight,
+        const unsigned int codePage,
+        CellSizeInDIP cellSizeInDIP,
+        float fontSizeInPt);
 
-    bool operator==(const FontInfoDesired& other) = delete;
+    FontInfoDesired(
+        const wchar_t* faceName,
+        const unsigned char family,
+        const unsigned int weight,
+        const unsigned int codePage,
+        til::size cellSizeInDIP);
 
-    void SetCellSize(const CSSLengthPercentage& cellWidth, const CSSLengthPercentage& cellHeight) noexcept;
-
-    const CSSLengthPercentage& GetCellWidth() const noexcept;
-    const CSSLengthPercentage& GetCellHeight() const noexcept;
+    const CellSizeInDIP& GetEngineSize() const noexcept;
     float GetFontSize() const noexcept;
-    til::size GetEngineSize() const noexcept;
+
+    bool IsTrueTypeFont() const noexcept;
+    void FillLegacyNameBuffer(wchar_t (&buffer)[LF_FACESIZE]) const noexcept;
     bool IsDefaultRasterFont() const noexcept;
 
+    static void s_SetFontDefaultList(_In_ Microsoft::Console::Render::IFontDefaultList* const pFontDefaultList) noexcept;
+
 private:
-    til::size _coordSizeDesired;
-    float _fontSize;
-    CSSLengthPercentage _cellWidth;
-    CSSLengthPercentage _cellHeight;
+    void _validate();
+
+    CellSizeInDIP _cellSizeInDIP;
+    float _fontSizeInPt = 0;
 };

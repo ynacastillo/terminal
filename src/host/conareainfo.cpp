@@ -24,7 +24,8 @@ ConversionAreaInfo::ConversionAreaInfo(const til::size bufferSize,
                                        const til::size windowSize,
                                        const TextAttribute& fill,
                                        const TextAttribute& popupFill,
-                                       const FontInfo fontInfo) :
+                                       const FontInfoDesired& fontInfoDesired,
+                                       const FontInfo& fontInfo) :
     _caInfo{ bufferSize },
     _isHidden{ true },
     _screenBuffer{ nullptr }
@@ -33,6 +34,7 @@ ConversionAreaInfo::ConversionAreaInfo(const til::size bufferSize,
 
     // cursor has no height because it won't be rendered for conversion area
     THROW_IF_NTSTATUS_FAILED(SCREEN_INFORMATION::CreateInstance(windowSize,
+                                                                fontInfoDesired,
                                                                 fontInfo,
                                                                 bufferSize,
                                                                 fill,

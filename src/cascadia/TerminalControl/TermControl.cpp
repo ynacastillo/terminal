@@ -2387,6 +2387,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         const auto fontSize = settings.FontSize();
         const auto fontWeight = settings.FontWeight();
         const auto fontFace = settings.FontFace();
+        const auto cellWidth = CSSLengthPercentage::FromString(settings.CellWidth().c_str());
+        const auto cellHeight = CSSLengthPercentage::FromString(settings.CellHeight().c_str());
         const auto scrollState = settings.ScrollState();
         const auto padding = settings.Padding();
 
@@ -2397,8 +2399,15 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         //      The family is only used to determine if the font is truetype or
         //      not, but DX doesn't use that info at all.
         //      The Codepage is additionally not actually used by the DX engine at all.
-        FontInfoDesired desiredFont{ fontFace, 0, fontWeight.Weight, fontSize, CP_UTF8 };
-        FontInfo actualFont{ fontFace, 0, fontWeight.Weight, desiredFont.GetEngineSize(), CP_UTF8, false };
+        FontInfoDesired desiredFont{
+            fontFace,
+            0,
+            fontWeight.Weight,
+            0,
+            { cellWidth, cellHeight },
+            fontSize,
+        };
+        FontInfo actualFont;
 
         // Create a DX engine and initialize it with our font and DPI. We'll
         // then use it to measure how much space the requested rows and columns
@@ -2423,13 +2432,11 @@ namespace winrt::Microsoft::Terminal::Control::implementation
             scale = engine->GetScaling();
         }
 
-        const auto actualFontSize = actualFont.GetSize();
-
         // UWP XAML scrollbars aren't guaranteed to be the same size as the
         // ComCtl scrollbars, but it's certainly close enough.
         const auto scrollbarSize = GetSystemMetricsForDpi(SM_CXVSCROLL, dpi);
 
-        float width = cols * static_cast<float>(actualFontSize.width);
+        float width = cols * static_cast<float>(actualFont.GetSize().width);
 
         // Reserve additional space if scrollbar is intended to be visible
         if (scrollState != ScrollbarState::Hidden)
@@ -2437,7 +2444,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
             width += scrollbarSize;
         }
 
-        float height = rows * static_cast<float>(actualFontSize.height);
+        float height = rows * static_cast<float>(actualFont.GetSize().height);
         const auto thickness = ParseThicknessFromPadding(padding);
         // GH#2061 - make sure to account for the size the padding _will be_ scaled to
         width += scale * static_cast<float>(thickness.Left + thickness.Right);

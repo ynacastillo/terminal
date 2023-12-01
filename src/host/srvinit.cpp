@@ -60,7 +60,7 @@ try
 
     Globals.pFontDefaultList = new RenderFontDefaults();
 
-    FontInfoBase::s_SetFontDefaultList(Globals.pFontDefaultList);
+    FontInfoDesired::s_SetFontDefaultList(Globals.pFontDefaultList);
 
     // Check if this conhost is allowed to delegate its activities to another.
     // If so, look up the registered default console handler.

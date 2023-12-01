@@ -25,11 +25,13 @@ using namespace Microsoft::Console::Interactivity;
 {
     auto& gci = ServiceLocator::LocateGlobals().getConsoleInformation();
 
-    FontInfo fiFont(gci.GetFaceName(),
-                    gsl::narrow_cast<unsigned char>(gci.GetFontFamily()),
-                    gci.GetFontWeight(),
-                    gci.GetFontSize(),
-                    gci.GetCodePage());
+    FontInfoDesired fiFont{
+        gci.GetFaceName(),
+        gsl::narrow_cast<unsigned char>(gci.GetFontFamily()),
+        gci.GetFontWeight(),
+        gci.GetCodePage(),
+        gci.GetFontSize(),
+    };
 
     // For East Asian version, we want to get the code page from the registry or shell32, so we can specify console
     // codepage by console.cpl or shell32. The default codepage is OEMCP.
@@ -40,6 +42,7 @@ using namespace Microsoft::Console::Interactivity;
 
     auto Status = SCREEN_INFORMATION::CreateInstance(gci.GetWindowSize(),
                                                      fiFont,
+                                                     FontInfo{},
                                                      gci.GetScreenBufferSize(),
                                                      TextAttribute{},
                                                      TextAttribute{ gci.GetPopupFillAttribute() },

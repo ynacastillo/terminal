@@ -2095,7 +2095,7 @@ std::wstring TextBuffer::GetPlainText(const til::point& start, const til::point&
 // Return Value:
 // - string containing the generated HTML
 std::string TextBuffer::GenHTML(const TextAndColor& rows,
-                                const int fontHeightPoints,
+                                const float fontHeightPoints,
                                 const std::wstring_view fontFaceName,
                                 const COLORREF backgroundColor)
 {
@@ -2286,7 +2286,7 @@ std::string TextBuffer::GenHTML(const TextAndColor& rows,
 // - htmlTitle - value used in title tag of html header. Used to name the application
 // Return Value:
 // - string containing the generated RTF
-std::string TextBuffer::GenRTF(const TextAndColor& rows, const int fontHeightPoints, const std::wstring_view fontFaceName, const COLORREF backgroundColor)
+std::string TextBuffer::GenRTF(const TextAndColor& rows, const float fontHeightPoints, const std::wstring_view fontFaceName, const COLORREF backgroundColor)
 {
     try
     {
@@ -2344,7 +2344,7 @@ std::string TextBuffer::GenRTF(const TextAndColor& rows, const int fontHeightPoi
         // paragraph styles
         // \fs specifies font size in half-points i.e. \fs20 results in a font size
         // of 10 pts. That's why, font size is multiplied by 2 here.
-        contentBuilder << "\\pard\\slmult1\\f0\\fs" << std::to_string(2 * fontHeightPoints)
+        contentBuilder << "\\pard\\slmult1\\f0\\fs" << lroundf(2 * fontHeightPoints)
                        // Set the background color for the page. But, the
                        // standard way (\cbN) to do this isn't supported in Word.
                        // However, the following control words sequence works

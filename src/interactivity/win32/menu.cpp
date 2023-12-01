@@ -305,11 +305,11 @@ void Menu::s_ShowPropertiesDialog(HWND const hwnd, BOOL const Defaults)
     pStateInfo->WindowPosX = rcWindow.left;
     pStateInfo->WindowPosY = rcWindow.top;
 
-    const auto& currentFont = ScreenInfo.GetCurrentFont();
+    const auto& currentFont = ScreenInfo.GetDesiredFont();
     pStateInfo->FontFamily = currentFont.GetFamily();
-    LOG_IF_FAILED(til::unwrap_coord_size_hr(currentFont.GetUnscaledSize(), pStateInfo->FontSize));
+    LOG_IF_FAILED(til::unwrap_coord_size_hr(currentFont.GetEngineSize().AsInteger_DoNotUse(), pStateInfo->FontSize));
     pStateInfo->FontWeight = currentFont.GetWeight();
-    LOG_IF_FAILED(StringCchCopyW(pStateInfo->FaceName, ARRAYSIZE(pStateInfo->FaceName), currentFont.GetFaceName().data()));
+    currentFont.FillLegacyNameBuffer(pStateInfo->FaceName);
 
     const auto& cursor = ScreenInfo.GetTextBuffer().GetCursor();
     pStateInfo->CursorSize = cursor.GetSize();
@@ -445,15 +445,21 @@ void Menu::s_PropertiesUpdate(PCONSOLE_STATE_INFO pStateInfo)
     // end V2 console properties
 
     // Apply font information (must come before all character calculations for window/buffer size).
-    FontInfo fiNewFont(pStateInfo->FaceName, gsl::narrow_cast<unsigned char>(pStateInfo->FontFamily), pStateInfo->FontWeight, til::wrap_coord_size(pStateInfo->FontSize), pStateInfo->CodePage);
+    const FontInfoDesired desired{
+        pStateInfo->FaceName,
+        gsl::narrow_cast<unsigned char>(pStateInfo->FontFamily),
+        pStateInfo->FontWeight,
+        pStateInfo->CodePage,
+        til::wrap_coord_size(pStateInfo->FontSize),
+    };
 
-    ScreenInfo.UpdateFont(&fiNewFont);
+    ScreenInfo.UpdateFont(desired);
 
     const auto& fontApplied = ScreenInfo.GetCurrentFont();
 
     // Now make sure internal font state reflects the font chosen
     gci.SetFontFamily(fontApplied.GetFamily());
-    gci.SetFontSize(fontApplied.GetUnscaledSize());
+    gci.SetFontSize(fontApplied.GetUnscaledSize().AsInteger_DoNotUse());
     gci.SetFontWeight(fontApplied.GetWeight());
     gci.SetFaceName(fontApplied.GetFaceName());
 

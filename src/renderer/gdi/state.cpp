@@ -569,8 +569,7 @@ GdiEngine::~GdiEngine()
     wil::unique_hdc hdcTemp(CreateCompatibleDC(_hdcMemoryContext));
     RETURN_HR_IF_NULL(E_FAIL, hdcTemp.get());
 
-    // Get a special engine size because TT fonts can't specify X or we'll get weird scaling under some circumstances.
-    auto coordFontRequested = FontDesired.GetEngineSize();
+    const auto dpi = static_cast<float>(iDpi);
 
     // First, check to see if we're asking for the default raster font.
     if (FontDesired.IsDefaultRasterFont())
@@ -585,6 +584,8 @@ GdiEngine::~GdiEngine()
     }
     else
     {
+        const auto& cellSize = FontDesired.GetEngineSize();
+
         // For future reference, here is the engine weighting and internal details on Windows Font Mapping:
         // https://msdn.microsoft.com/en-us/library/ms969909.aspx
         // More relevant links:
@@ -600,8 +601,8 @@ GdiEngine::~GdiEngine()
         // attention to the font previews to ensure that the font being selected by GDI is exactly the font requested --
         // some monospace fonts look very similar.
         LOGFONTW lf = { 0 };
-        lf.lfHeight = s_ScaleByDpi(coordFontRequested.height, iDpi);
-        lf.lfWidth = s_ScaleByDpi(coordFontRequested.width, iDpi);
+        lf.lfHeight = lroundf(cellSize.height / 96.0f * dpi);
+        lf.lfWidth = lroundf(cellSize.width / 96.0f * dpi);
         lf.lfWeight = FontDesired.GetWeight();
 
         // If we're searching for Terminal, our supported Raster Font, then we must use OEM_CHARSET.
@@ -633,7 +634,17 @@ GdiEngine::~GdiEngine()
 
         lf.lfQuality = DRAFT_QUALITY;
 
-        // NOTE: not using what GDI gave us because some fonts don't quite roundtrip (e.g. MS Gothic and VL Gothic)
+        // SetCurrentConsoleFontEx allows setting a "FontFamily" but at the time of writing this field is
+        // entirely unused in GdiEngine. Instead it sets the LOGFONT lfPitchAndFamily field to the following
+        // constant at all times. It's unclear when this change occurred and why, but it was described as:
+        //   NOTE: not using what GDI gave us because some fonts don't quite roundtrip (e.g. MS Gothic and VL Gothic)
+        //
+        // To be entirely honest this sounds like a mistake to me. From what I can tell a "roundtrip" issue did
+        // in fact occur but only because someone mistakenly constructed the "new desired font info" from the
+        // previous "actual font info", which is inherently incorrect, because CreateFontIndirect is a lossy
+        // process. The correct fix would've been to fill the new "desired font info" based on the previous
+        // "desired font info" instead. In any case, changing this constant now without understanding the
+        // entire system behind it (I certainly don't) would probably just exchange one bug with another.
         lf.lfPitchAndFamily = (FIXED_PITCH | FF_MODERN);
 
         FontDesired.FillLegacyNameBuffer(lf.lfFaceName);
@@ -653,8 +664,8 @@ GdiEngine::~GdiEngine()
     RETURN_HR_IF_NULL(E_FAIL, hFontOld.get());
 
     // Save off the font metrics for various other calculations
-    TEXTMETRICW tm;
-    RETURN_HR_IF(E_FAIL, !(GetTextMetricsW(hdcTemp.get(), &tm)));
+    OUTLINETEXTMETRICW tm;
+    RETURN_HR_IF(E_FAIL, !(GetOutlineTextMetricsW(hdcTemp.get(), sizeof(tm), &tm)));
 
     // Now find the size of a 0 in this current font and save it for conversions done later.
     SIZE sz;
@@ -692,21 +703,14 @@ GdiEngine::~GdiEngine()
 
         currentFaceName.resize(faceNameLength - 1); // remove the null terminator (wstring!)
 
-        if (FontDesired.IsDefaultRasterFont())
-        {
-            coordFontRequested = coordFont;
-        }
-        else if (coordFontRequested.width == 0)
-        {
-            coordFontRequested.width = s_ShrinkByDpi(coordFont.width, iDpi);
-        }
-
-        Font.SetFromEngine(currentFaceName,
-                           tm.tmPitchAndFamily,
-                           gsl::narrow_cast<unsigned int>(tm.tmWeight),
-                           FontDesired.IsDefaultRasterFont(),
-                           coordFont,
-                           coordFontRequested);
+        Font.SetFromEngine(
+            std::move(currentFaceName),
+            tm.otmTextMetrics.tmPitchAndFamily,
+            tm.otmTextMetrics.tmWeight,
+            FontDesired.GetCodePage(),
+            { coordFont.width * 96.0f / dpi, coordFont.height * 96.0f / dpi },
+            (tm.otmAscent - tm.otmDescent) * 72.0f / dpi,
+            coordFont);
     }
 
     return S_OK;

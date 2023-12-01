@@ -27,7 +27,7 @@ constexpr short DEFAULT_HISTORY_SIZE = 9001;
 #pragma warning(disable : 26426)
 // TODO GH 2674, don't disable this warning, move to std::wstring_view or something like that.
 const std::wstring DEFAULT_FONT_FACE{ L"Cascadia Mono" };
-constexpr int DEFAULT_FONT_SIZE = 12;
+constexpr int DEFAULT_FONT_SIZE = 0;
 constexpr uint16_t DEFAULT_FONT_WEIGHT = 400; // normal
 
 constexpr int DEFAULT_ROWS = 30;

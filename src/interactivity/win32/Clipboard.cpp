@@ -298,13 +298,13 @@ void Clipboard::CopyTextToSystemClipboard(const TextBuffer::TextAndColor& rows, 
         {
             const auto& gci = ServiceLocator::LocateGlobals().getConsoleInformation();
             const auto& fontData = gci.GetActiveOutputBuffer().GetCurrentFont();
-            const auto iFontHeightPoints = fontData.GetUnscaledSize().height * 72 / ServiceLocator::LocateGlobals().dpi;
+            const auto fontSize = fontData.GetFontSize();
             const auto bgColor = gci.GetRenderSettings().GetAttributeColors({}).second;
 
-            auto HTMLToPlaceOnClip = TextBuffer::GenHTML(rows, iFontHeightPoints, fontData.GetFaceName(), bgColor);
+            const auto HTMLToPlaceOnClip = TextBuffer::GenHTML(rows, fontSize, fontData.GetFaceName(), bgColor);
             CopyToSystemClipboard(HTMLToPlaceOnClip, L"HTML Format");
 
-            auto RTFToPlaceOnClip = TextBuffer::GenRTF(rows, iFontHeightPoints, fontData.GetFaceName(), bgColor);
+            const auto RTFToPlaceOnClip = TextBuffer::GenRTF(rows, fontSize, fontData.GetFaceName(), bgColor);
             CopyToSystemClipboard(RTFToPlaceOnClip, L"Rich Text Format");
         }
     }
@@ -320,7 +320,7 @@ void Clipboard::CopyTextToSystemClipboard(const TextBuffer::TextAndColor& rows, 
 // Arguments:
 // - stringToCopy - The string to copy
 // - lpszFormat - the name of the format
-void Clipboard::CopyToSystemClipboard(std::string stringToCopy, LPCWSTR lpszFormat)
+void Clipboard::CopyToSystemClipboard(std::string_view stringToCopy, LPCWSTR lpszFormat)
 {
     const auto cbData = stringToCopy.size() + 1; // +1 for '\0'
     if (cbData)

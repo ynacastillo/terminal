@@ -25,34 +25,28 @@ Author(s):
 
 #include "FontInfoBase.hpp"
 
-class FontInfo : public FontInfoBase
+struct FontInfo : FontInfoBase
 {
-public:
-    FontInfo(const std::wstring_view& faceName,
-             const unsigned char family,
-             const unsigned int weight,
-             const til::size coordSize,
-             const unsigned int codePage,
-             const bool fSetDefaultRasterFont = false) noexcept;
+    void SetFromEngine(
+        std::wstring faceName,
+        const unsigned char family,
+        const unsigned int weight,
+        const unsigned int codePage,
+        CellSizeInDIP cellSizeInDIP,
+        float fontSizeInPt,
+        til::size cellSizeInPx);
 
-    bool operator==(const FontInfo& other) noexcept;
+    const CellSizeInDIP& GetUnscaledSize() const noexcept;
+    float GetFontSize() const noexcept;
 
-    til::size GetSize() const noexcept;
-    til::size GetUnscaledSize() const noexcept;
-    void SetFromEngine(const std::wstring_view& faceName,
-                       const unsigned char family,
-                       const unsigned int weight,
-                       const bool fSetDefaultRasterFont,
-                       const til::size coordSize,
-                       const til::size coordSizeUnscaled) noexcept;
-    bool GetFallback() const noexcept;
-    void SetFallback(const bool didFallback) noexcept;
-    void ValidateFont() noexcept;
+    const til::size& GetSize() const noexcept;
+
+    bool IsTrueTypeFont() const noexcept;
+    void FillLegacyNameBuffer(wchar_t (&buffer)[LF_FACESIZE]) const noexcept;
 
 private:
-    void _ValidateCoordSize() noexcept;
+    CellSizeInDIP _cellSizeInDIP;
+    float _fontSizeInPt = 0;
 
-    til::size _coordSize;
-    til::size _coordSizeUnscaled;
-    bool _didFallback;
+    til::size _cellSizeInPx;
 };

@@ -234,18 +234,14 @@
 
             <!--  Line Height  -->
             <local:SettingContainer x:Uid="Profile_LineHeight"
-                                    ClearSettingValue="{x:Bind Appearance.ClearLineHeight}"
-                                    HasSettingValue="{x:Bind Appearance.HasLineHeight, Mode=OneWay}"
-                                    SettingOverrideSource="{x:Bind Appearance.LineHeightOverrideSource, Mode=OneWay}"
+                                    ClearSettingValue="{x:Bind Appearance.ClearCellHeight}"
+                                    HasSettingValue="{x:Bind Appearance.HasCellHeight, Mode=OneWay}"
+                                    SettingOverrideSource="{x:Bind Appearance.CellHeightOverrideSource, Mode=OneWay}"
                                     Visibility="{x:Bind Appearance.IsDefault, Mode=OneWay}">
-                <muxc:NumberBox x:Name="_lineHeightBox"
-                                x:Uid="Profile_LineHeightBox"
-                                LargeChange="0.1"
-                                Maximum="10"
-                                Minimum="0.1"
-                                SmallChange="0.1"
-                                Style="{StaticResource NumberBoxSettingStyle}"
-                                Value="{x:Bind Appearance.LineHeight, Mode=TwoWay}" />
+                <TextBox x:Uid="Profile_LineHeightBox"
+                         IsSpellCheckEnabled="False"
+                         Style="{StaticResource TextBoxSettingStyle}"
+                         Text="{x:Bind Appearance.CellHeight, Mode=TwoWay}" />
             </local:SettingContainer>
 
             <!--  Font Weight  -->

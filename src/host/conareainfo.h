@@ -22,6 +22,7 @@ Revision History:
 #include "../buffer/out/OutputCell.hpp"
 #include "../buffer/out/TextAttribute.hpp"
 #include "../renderer/inc/FontInfo.hpp"
+#include "../renderer/inc/FontInfoDesired.hpp"
 
 class SCREEN_INFORMATION;
 class TextBuffer;
@@ -44,7 +45,8 @@ public:
                        const til::size windowSize,
                        const TextAttribute& fill,
                        const TextAttribute& popupFill,
-                       const FontInfo fontInfo);
+                       const FontInfoDesired& fontInfoDesired,
+                       const FontInfo& fontInfo);
     ~ConversionAreaInfo() = default;
     ConversionAreaInfo(const ConversionAreaInfo&) = delete;
     ConversionAreaInfo(ConversionAreaInfo&& other);

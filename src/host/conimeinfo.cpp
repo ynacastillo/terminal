@@ -154,15 +154,14 @@ void ConsoleImeInfo::ClearAllAreas()
 
     const auto popupFill = gci.GetActiveOutputBuffer().GetPopupAttributes();
 
-    const auto& fontInfo = gci.GetActiveOutputBuffer().GetCurrentFont();
-
     try
     {
         ConvAreaCompStr.emplace_back(bufferSize,
                                      windowSize,
                                      fill,
                                      popupFill,
-                                     fontInfo);
+                                     gci.GetActiveOutputBuffer().GetDesiredFont(),
+                                     gci.GetActiveOutputBuffer().GetCurrentFont());
     }
     CATCH_RETURN();
 

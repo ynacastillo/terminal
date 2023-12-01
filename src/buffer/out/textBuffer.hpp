@@ -248,12 +248,12 @@ public:
     std::wstring GetPlainText(const til::point& start, const til::point& end) const;
 
     static std::string GenHTML(const TextAndColor& rows,
-                               const int fontHeightPoints,
+                               const float fontHeightPoints,
                                const std::wstring_view fontFaceName,
                                const COLORREF backgroundColor);
 
     static std::string GenRTF(const TextAndColor& rows,
-                              const int fontHeightPoints,
+                              const float fontHeightPoints,
                               const std::wstring_view fontFaceName,
                               const COLORREF backgroundColor);
 

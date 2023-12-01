@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "../../renderer/inc/FontInfo.hpp"
 #include "../../renderer/inc/FontInfoDesired.hpp"
 #include "DxFontInfo.h"
 #include "BoxDrawingEffect.h"

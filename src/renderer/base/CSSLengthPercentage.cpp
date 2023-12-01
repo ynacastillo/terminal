@@ -42,8 +42,17 @@ CSSLengthPercentage CSSLengthPercentage::FromString(const wchar_t* str)
         }
         else
         {
-            return {};
+            value = 0;
         }
+    }
+
+    // When we get weird input values we should pretend as if this instance is empty. To do so,
+    // we need to return ReferenceFrame::None, because otherwise we don't compare equal to a
+    // default constructed CSSLengthPercentage. This uses negation to properly handle NAN.
+    if (!(value > 0))
+    {
+        value = 0;
+        referenceFrame = ReferenceFrame::None;
     }
 
     CSSLengthPercentage obj;

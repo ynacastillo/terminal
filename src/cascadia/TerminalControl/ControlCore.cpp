@@ -80,9 +80,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
     ControlCore::ControlCore(Control::IControlSettings settings,
                              Control::IControlAppearance unfocusedAppearance,
-                             TerminalConnection::ITerminalConnection connection) :
-        _desiredFont{ DEFAULT_FONT_FACE, 0, DEFAULT_FONT_WEIGHT, DEFAULT_FONT_SIZE, CP_UTF8 },
-        _actualFont{ DEFAULT_FONT_FACE, 0, DEFAULT_FONT_WEIGHT, { 0, DEFAULT_FONT_SIZE }, CP_UTF8, false }
+                             TerminalConnection::ITerminalConnection connection)
     {
         _settings = winrt::make_self<implementation::ControlSettings>(settings, unfocusedAppearance);
         _terminal = std::make_shared<::Microsoft::Terminal::Core::Terminal>();
@@ -986,34 +984,36 @@ namespace winrt::Microsoft::Terminal::Control::implementation
 
         _terminal->SetFontInfo(_actualFont);
 
-        if (_renderEngine)
+        if (!_renderEngine)
         {
-            std::unordered_map<std::wstring_view, uint32_t> featureMap;
-            if (const auto fontFeatures = _settings->FontFeatures())
-            {
-                featureMap.reserve(fontFeatures.Size());
-
-                for (const auto& [tag, param] : fontFeatures)
-                {
-                    featureMap.emplace(tag, param);
-                }
-            }
-            std::unordered_map<std::wstring_view, float> axesMap;
-            if (const auto fontAxes = _settings->FontAxes())
-            {
-                axesMap.reserve(fontAxes.Size());
-
-                for (const auto& [axis, value] : fontAxes)
-                {
-                    axesMap.emplace(axis, value);
-                }
-            }
-
-            // TODO: MSFT:20895307 If the font doesn't exist, this doesn't
-            //      actually fail. We need a way to gracefully fallback.
-            LOG_IF_FAILED(_renderEngine->UpdateDpi(newDpi));
-            LOG_IF_FAILED(_renderEngine->UpdateFont(_desiredFont, _actualFont, featureMap, axesMap));
+            return;
         }
+
+        std::unordered_map<std::wstring_view, uint32_t> featureMap;
+        if (const auto fontFeatures = _settings->FontFeatures())
+        {
+            featureMap.reserve(fontFeatures.Size());
+
+            for (const auto& [tag, param] : fontFeatures)
+            {
+                featureMap.emplace(tag, param);
+            }
+        }
+        std::unordered_map<std::wstring_view, float> axesMap;
+        if (const auto fontAxes = _settings->FontAxes())
+        {
+            axesMap.reserve(fontAxes.Size());
+
+            for (const auto& [axis, value] : fontAxes)
+            {
+                axesMap.emplace(axis, value);
+            }
+        }
+
+        // TODO: MSFT:20895307 If the font doesn't exist, this doesn't
+        //      actually fail. We need a way to gracefully fallback.
+        LOG_IF_FAILED(_renderEngine->UpdateDpi(newDpi));
+        LOG_IF_FAILED(_renderEngine->UpdateFont(_desiredFont, _actualFont, featureMap, axesMap));
 
         // If the actual font isn't what was requested...
         if (_actualFont.GetFaceName() != _desiredFont.GetFaceName())
@@ -1039,17 +1039,19 @@ namespace winrt::Microsoft::Terminal::Control::implementation
     // - Returns true if you need to call _refreshSizeUnderLock().
     bool ControlCore::_setFontSizeUnderLock(float fontSize)
     {
-        // Make sure we have a non-zero font size
-        const auto newSize = std::max(fontSize, 1.0f);
+        const auto before = _actualFont.GetSize();
+
         const auto fontFace = _settings->FontFace();
         const auto fontWeight = _settings->FontWeight();
-        _desiredFont = { fontFace, 0, fontWeight.Weight, newSize, CP_UTF8 };
-        _actualFont = { fontFace, 0, fontWeight.Weight, _desiredFont.GetEngineSize(), CP_UTF8, false };
-        _actualFontFaceName = { fontFace };
 
-        _desiredFont.SetCellSize(_cellWidth, _cellHeight);
+        _desiredFont = FontInfoDesired{
+            GetFaceName() = std::wstring{ std::wstring_view{ fontFace } },
+            .GetWeight() = fontWeight.Weight,
+            .fontSize = fontSize,
+            .cellSize = { _cellWidth, _cellHeight },
+        };
+        _actualFontFaceName = fontFace;
 
-        const auto before = _actualFont.GetSize();
         _updateFont();
         const auto after = _actualFont.GetSize();
         return before != after;
@@ -1267,20 +1269,11 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         // GH#5347 - Don't provide a title for the generated HTML, as many
         // web applications will paste the title first, followed by the HTML
         // content, which is unexpected.
-        const auto htmlData = formats == nullptr || WI_IsFlagSet(formats.Value(), CopyFormat::HTML) ?
-                                  TextBuffer::GenHTML(bufferData,
-                                                      _actualFont.GetUnscaledSize().height,
-                                                      _actualFont.GetFaceName(),
-                                                      bgColor) :
-                                  "";
-
-        // convert to RTF format
-        const auto rtfData = formats == nullptr || WI_IsFlagSet(formats.Value(), CopyFormat::RTF) ?
-                                 TextBuffer::GenRTF(bufferData,
-                                                    _actualFont.GetUnscaledSize().height,
-                                                    _actualFont.GetFaceName(),
-                                                    bgColor) :
-                                 "";
+        const auto copyFormats = formats ? formats.Value() : CopyFormat::All;
+        const auto fontSize = _actualFont.GetFontSize();
+        const auto& faceName = _actualFont.GetFaceName();
+        const auto htmlData = WI_IsFlagSet(copyFormats, CopyFormat::HTML) ? TextBuffer::GenHTML(bufferData, fontSize, faceName, bgColor) : "";
+        const auto rtfData = WI_IsFlagSet(copyFormats, CopyFormat::RTF) ? TextBuffer::GenRTF(bufferData, fontSize, faceName, bgColor) : "";
 
         // send data up for clipboard
         _CopyToClipboardHandlers(*this,

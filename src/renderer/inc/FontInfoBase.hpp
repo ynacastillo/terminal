@@ -18,45 +18,33 @@ Author(s):
 
 #pragma once
 
-#include "IFontDefaultList.hpp"
-
 inline constexpr wchar_t DEFAULT_TT_FONT_FACENAME[]{ L"__DefaultTTFont__" };
 inline constexpr wchar_t DEFAULT_RASTER_FONT_FACENAME[]{ L"Terminal" };
 
-class FontInfoBase
+struct CellSizeInDIP
 {
-public:
-    FontInfoBase(const std::wstring_view& faceName,
-                 const unsigned char family,
-                 const unsigned int weight,
-                 const bool fSetDefaultRasterFont,
-                 const unsigned int uiCodePage) noexcept;
+    float width = 0;
+    float height = 0;
 
-    bool operator==(const FontInfoBase& other) noexcept;
+    constexpr bool operator==(const CellSizeInDIP&) const = default;
+
+    static CellSizeInDIP FromInteger_DoNotUse(til::size size) noexcept;
+    til::size AsInteger_DoNotUse() const noexcept;
+};
+
+struct FontInfoBase
+{
+    FontInfoBase() = default;
+    FontInfoBase(std::wstring faceName, unsigned char family, unsigned int weight, unsigned int uiCodePage);
 
     unsigned char GetFamily() const noexcept;
     unsigned int GetWeight() const noexcept;
     const std::wstring& GetFaceName() const noexcept;
     unsigned int GetCodePage() const noexcept;
-    void FillLegacyNameBuffer(wchar_t (&buffer)[LF_FACESIZE]) const noexcept;
-    bool IsTrueTypeFont() const noexcept;
-    void SetFromEngine(const std::wstring_view& faceName,
-                       const unsigned char family,
-                       const unsigned int weight,
-                       const bool fSetDefaultRasterFont) noexcept;
-    bool WasDefaultRasterSetFromEngine() const noexcept;
-    void ValidateFont() noexcept;
-
-    static Microsoft::Console::Render::IFontDefaultList* s_pFontDefaultList;
-    static void s_SetFontDefaultList(_In_ Microsoft::Console::Render::IFontDefaultList* const pFontDefaultList) noexcept;
 
 protected:
-    bool IsDefaultRasterFontNoSize() const noexcept;
-
-private:
     std::wstring _faceName;
-    unsigned int _weight;
-    unsigned char _family;
-    unsigned int _codePage;
-    bool _fDefaultRasterSetFromEngine;
+    unsigned char _family = 0;
+    unsigned int _weight = 0;
+    unsigned int _codePage = 0;
 };

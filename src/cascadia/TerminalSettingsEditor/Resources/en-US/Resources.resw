@@ -879,8 +879,8 @@
     <comment>Header for a control that sets the text line height.</comment>
   </data>
   <data name="Profile_LineHeight.HelpText" xml:space="preserve">
-    <value>Override the line height of the terminal. Measured as a multiple of the font size. The default value depends on your font and is usually around 1.2.</value>
-    <comment>A description for what the "line height" setting does. Presented near "Profile_LineHeight".</comment>
+    <value>Override the line height of the terminal. It supports inputs such as 1.5, 150%, 16px, 12pt, or 1ch. To match the font size behavior of the previous Windows Console Host, you can set this setting to something like 16px and then revert the font size setting to the default above.</value>
+    <comment>CSS stands for Cascading Style Sheets and is a web technology. "line-height", "px", "pt" and "ch" are part of CSS and should not be translated. {Locked="line-height","1.5","150%","16px","12pt","1ch"}</comment>
   </data>
   <data name="Profile_LineHeightBox.PlaceholderText" xml:space="preserve">
     <value>1.2</value>
