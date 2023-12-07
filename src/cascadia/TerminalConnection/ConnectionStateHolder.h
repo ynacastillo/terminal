@@ -24,9 +24,9 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
         try
         {
             {
-                std::lock_guard<std::mutex> stateLock{ _stateMutex };
+                const auto guard = _stateMutex.lock_exclusive();
                 // only allow movement up the state gradient
-                if (state < _connectionState)
+                if (state <= _connectionState)
                 {
                     return false;
                 }
@@ -57,7 +57,7 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
             // and then later to check that the current state is one of the passed-in ones:
             // (_state == args[0] || _state == args[1] || etc.)
             static_assert((... && std::is_same<Args, ConnectionState>::value), "all queried connection states must be from the ConnectionState enum");
-            std::lock_guard<std::mutex> stateLock{ _stateMutex };
+            const auto guard = _stateMutex.lock_exclusive();
             return (... || (_connectionState == args));
         }
         CATCH_FAIL_FAST()
@@ -71,7 +71,7 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
         bool _isStateAtOrBeyond(const ConnectionState state) const noexcept
         try
         {
-            std::lock_guard<std::mutex> stateLock{ _stateMutex };
+            const auto guard = _stateMutex.lock_exclusive();
             return _connectionState >= state;
         }
         CATCH_FAIL_FAST()
@@ -88,6 +88,6 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
 
     private:
         std::atomic<ConnectionState> _connectionState{ ConnectionState::NotConnected };
-        mutable std::mutex _stateMutex;
+        mutable wil::srwlock _stateMutex;
     };
 }

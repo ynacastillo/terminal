@@ -552,7 +552,10 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
     void ConptyConnection::Close() noexcept
     try
     {
-        _transitionToState(ConnectionState::Closing);
+        if (!_transitionToState(ConnectionState::Closing))
+        {
+            return;
+        }
 
         // .reset()ing either of these two will signal ConPTY to send out a CTRL_CLOSE_EVENT to all attached clients.
         // FYI: The other members of this class are concurrently read by the _hOutputThread
