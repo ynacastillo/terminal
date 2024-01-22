@@ -218,6 +218,7 @@ namespace Microsoft::Console::VirtualTerminal
             FinalTermAction = 133,
             VsCodeAction = 633,
             ITerm2Action = 1337,
+            WTAction = 9001,
         };
 
         bool _GetOscTitle(const std::wstring_view string,

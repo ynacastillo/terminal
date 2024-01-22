@@ -68,6 +68,15 @@
                                      Click="_SetAsDefaultOpenSettingsHandler" />
                 </mux:InfoBar.ActionButton>
             </mux:InfoBar>
+
+            <mux:InfoBar x:Name="CommandNotFoundInfoBar"
+                         x:Uid="CommandNotFoundInfoBar"
+                         x:Load="False"
+                         CornerRadius="0"
+                         IsClosable="True"
+                         IsIconVisible="True"
+                         IsOpen="False"
+                         Severity="Error"/>
         </StackPanel>
 
         <Grid x:Name="TabContent"

@@ -274,9 +274,10 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         TYPED_EVENT(UpdateSelectionMarkers,    IInspectable, Control::UpdateSelectionMarkersEventArgs);
         TYPED_EVENT(OpenHyperlink,             IInspectable, Control::OpenHyperlinkEventArgs);
         TYPED_EVENT(CompletionsChanged,        IInspectable, Control::CompletionsChangedEventArgs);
+        TYPED_EVENT(SearchMissingCommand,      IInspectable, Control::SearchMissingCommandEventArgs);
 
         TYPED_EVENT(CloseTerminalRequested,    IInspectable, IInspectable);
-        TYPED_EVENT(RestartTerminalRequested,    IInspectable, IInspectable);
+        TYPED_EVENT(RestartTerminalRequested,  IInspectable, IInspectable);
 
         TYPED_EVENT(Attached,                  IInspectable, IInspectable);
         // clang-format on
@@ -368,6 +369,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
         void _terminalPlayMidiNote(const int noteNumber,
                                    const int velocity,
                                    const std::chrono::microseconds duration);
+        void _terminalSearchMissingCommand(std::wstring_view missingCommand);
 
         winrt::fire_and_forget _terminalCompletionsChanged(std::wstring_view menuJson, unsigned int replaceLength);
 
