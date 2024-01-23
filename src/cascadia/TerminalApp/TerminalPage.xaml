@@ -76,7 +76,7 @@
                          IsClosable="True"
                          IsIconVisible="True"
                          IsOpen="False"
-                         Severity="Error"/>
+                         Severity="Error" />
         </StackPanel>
 
         <Grid x:Name="TabContent"
