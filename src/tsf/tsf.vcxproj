@@ -17,15 +17,12 @@
     <ClCompile Include="TfConvArea.cpp" />
     <ClCompile Include="TfDispAttr.cpp" />
     <ClCompile Include="TfEditSession.cpp" />
-    <ClCompile Include="TfTxtevCb.cpp" />
     <ClCompile Include="precomp.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ConsoleTSF.h" />
-    <ClInclude Include="debug.h" />
-    <ClInclude Include="globals.h" />
     <ClInclude Include="precomp.h" />
     <ClInclude Include="TfCatUtil.h" />
     <ClInclude Include="TfConvArea.h" />

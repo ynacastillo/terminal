@@ -2,225 +2,110 @@
 // Licensed under the MIT license.
 
 #include "precomp.h"
+#include "ConsoleTSF.h"
+
 #include "TfConvArea.h"
 #include "TfEditSession.h"
 
 /* 626761ad-78d2-44d2-be8b-752cf122acec */
-const GUID GUID_APPLICATION = { 0x626761ad, 0x78d2, 0x44d2, { 0xbe, 0x8b, 0x75, 0x2c, 0xf1, 0x22, 0xac, 0xec } };
+static constexpr GUID GUID_APPLICATION = { 0x626761ad, 0x78d2, 0x44d2, { 0xbe, 0x8b, 0x75, 0x2c, 0xf1, 0x22, 0xac, 0xec } };
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::Initialize
-//
-//----------------------------------------------------------------------------
-
-#define Init_CheckResult() \
-    if (FAILED(hr))        \
-    {                      \
-        Uninitialize();    \
-        return hr;         \
-    }
-
-[[nodiscard]] HRESULT CConsoleTSF::Initialize()
+CConsoleTSF::CConsoleTSF(HWND hwndConsole, GetSuggestionWindowPos pfnPosition, GetTextBoxAreaPos pfnTextArea) :
+    _hwndConsole(hwndConsole),
+    _pfnPosition(pfnPosition),
+    _pfnTextArea(pfnTextArea)
 {
-    HRESULT hr;
-
-    if (_spITfThreadMgr)
+    try
     {
-        return S_FALSE;
-    }
+        // There's no point in calling TF_GetThreadMgr. ITfThreadMgr is a per-thread singleton.
+        _threadMgrEx = wil::CoCreateInstance<ITfThreadMgrEx>(CLSID_TF_ThreadMgr, CLSCTX_INPROC_SERVER);
 
-    // Activate per-thread Cicero in custom UI mode (TF_TMAE_UIELEMENTENABLEDONLY).
+        THROW_IF_FAILED(_threadMgrEx->ActivateEx(&_tid, TF_TMAE_CONSOLE));
+        THROW_IF_FAILED(_threadMgrEx->CreateDocumentMgr(_documentMgr.addressof()));
 
-    hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    Init_CheckResult();
-    _fCoInitialized = TRUE;
+        TfEditCookie ecTmp;
+        THROW_IF_FAILED(_documentMgr->CreateContext(_tid, 0, static_cast<ITfContextOwnerCompositionSink*>(this), _context.addressof(), &ecTmp));
 
-    hr = ::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&_spITfThreadMgr));
-    Init_CheckResult();
+        _threadMgrExSource = _threadMgrEx.query<ITfSource>();
+        THROW_IF_FAILED(_threadMgrExSource->AdviseSink(IID_ITfInputProcessorProfileActivationSink, static_cast<ITfInputProcessorProfileActivationSink*>(this), &_dwActivationSinkCookie));
+        THROW_IF_FAILED(_threadMgrExSource->AdviseSink(IID_ITfUIElementSink, static_cast<ITfUIElementSink*>(this), &_dwUIElementSinkCookie));
 
-    hr = _spITfThreadMgr->ActivateEx(&_tid, TF_TMAE_CONSOLE);
-    Init_CheckResult();
+        _contextSource = _context.query<ITfSource>();
+        THROW_IF_FAILED(_contextSource->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner*>(this), &_dwContextOwnerCookie));
+        THROW_IF_FAILED(_contextSource->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink*>(this), &_dwTextEditSinkCookie));
 
-    // Create Cicero document manager and input context.
+        _contextSourceSingle = _context.query<ITfSourceSingle>();
+        THROW_IF_FAILED(_contextSourceSingle->AdviseSingleSink(_tid, IID_ITfCleanupContextSink, static_cast<ITfCleanupContextSink*>(this)));
 
-    hr = _spITfThreadMgr->CreateDocumentMgr(&_spITfDocumentMgr);
-    Init_CheckResult();
+        THROW_IF_FAILED(_documentMgr->Push(_context.get()));
 
-    TfEditCookie ecTmp;
-    hr = _spITfDocumentMgr->CreateContext(_tid,
-                                          0,
-                                          static_cast<ITfContextOwnerCompositionSink*>(this),
-                                          &_spITfInputContext,
-                                          &ecTmp);
-    Init_CheckResult();
-
-    // Set the context owner before attaching the context to the doc.
-    wil::com_ptr_nothrow<ITfSource> spSrcIC;
-    hr = _spITfInputContext.query_to(&spSrcIC);
-    Init_CheckResult();
-
-    hr = spSrcIC->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner*>(this), &_dwContextOwnerCookie);
-    Init_CheckResult();
-
-    hr = _spITfDocumentMgr->Push(_spITfInputContext.get());
-    Init_CheckResult();
-
-    // Collect the active keyboard layout info.
-
-    wil::com_ptr_nothrow<ITfInputProcessorProfileMgr> spITfProfilesMgr;
-    hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&spITfProfilesMgr));
-    if (SUCCEEDED(hr))
-    {
-        TF_INPUTPROCESSORPROFILE ipp;
-        hr = spITfProfilesMgr->GetActiveProfile(GUID_TFCAT_TIP_KEYBOARD, &ipp);
-        if (SUCCEEDED(hr))
+        // Collect the active keyboard layout info.
+        if (const auto spITfProfilesMgr = wil::CoCreateInstanceNoThrow<ITfInputProcessorProfileMgr>(CLSID_TF_InputProcessorProfiles, CLSCTX_INPROC_SERVER))
         {
-            OnActivated(ipp.dwProfileType, ipp.langid, ipp.clsid, ipp.catid, ipp.guidProfile, ipp.hkl, ipp.dwFlags);
+            TF_INPUTPROCESSORPROFILE ipp;
+            if (SUCCEEDED(spITfProfilesMgr->GetActiveProfile(GUID_TFCAT_TIP_KEYBOARD, &ipp)))
+            {
+                std::ignore = CConsoleTSF::OnActivated(ipp.dwProfileType, ipp.langid, ipp.clsid, ipp.catid, ipp.guidProfile, ipp.hkl, ipp.dwFlags);
+            }
         }
     }
-    Init_CheckResult();
-
-    // Setup some useful Cicero event sinks and callbacks.
-    // _spITfThreadMgr && _spITfInputContext must be non-null for checks above to have succeeded, so
-    // we're not going to check them again here. try_query will A/V if they're null.
-    auto spSrcTIM = _spITfThreadMgr.try_query<ITfSource>();
-    auto spSrcICS = _spITfInputContext.try_query<ITfSourceSingle>();
-
-    hr = (spSrcTIM && spSrcIC && spSrcICS) ? S_OK : E_FAIL;
-    Init_CheckResult();
-
-    hr = spSrcTIM->AdviseSink(IID_ITfInputProcessorProfileActivationSink,
-                              static_cast<ITfInputProcessorProfileActivationSink*>(this),
-                              &_dwActivationSinkCookie);
-    Init_CheckResult();
-
-    hr = spSrcTIM->AdviseSink(IID_ITfUIElementSink, static_cast<ITfUIElementSink*>(this), &_dwUIElementSinkCookie);
-    Init_CheckResult();
-
-    hr = spSrcIC->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink*>(this), &_dwTextEditSinkCookie);
-    Init_CheckResult();
-
-    hr = spSrcICS->AdviseSingleSink(_tid, IID_ITfCleanupContextSink, static_cast<ITfCleanupContextSink*>(this));
-    Init_CheckResult();
-
-    return hr;
+    catch (...)
+    {
+        _cleanup();
+        throw;
+    }
 }
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::Uninitialize()
-//
-//----------------------------------------------------------------------------
-
-void CConsoleTSF::Uninitialize()
+CConsoleTSF::~CConsoleTSF()
 {
-    // Destroy the current conversion area object
+    _cleanup();
+}
 
-    if (_pConversionArea)
+void CConsoleTSF::_cleanup() const noexcept
+{
+    if (_contextSourceSingle)
     {
-        delete _pConversionArea;
-        _pConversionArea = nullptr;
+        _contextSourceSingle->UnadviseSingleSink(_tid, IID_ITfCleanupContextSink);
     }
-
-    // Detach Cicero event sinks.
-    if (_spITfInputContext)
+    if (_contextSource)
     {
-        auto spSrcICS = _spITfInputContext.try_query<ITfSourceSingle>();
-        if (spSrcICS)
-        {
-            spSrcICS->UnadviseSingleSink(_tid, IID_ITfCleanupContextSink);
-        }
+        _contextSource->UnadviseSink(_dwTextEditSinkCookie);
+        _contextSource->UnadviseSink(_dwContextOwnerCookie);
     }
-
-    // Associate the document\context with the console window.
-
-    if (_spITfThreadMgr)
+    if (_threadMgrExSource)
     {
-        auto spSrcTIM = _spITfThreadMgr.try_query<ITfSource>();
-        if (spSrcTIM)
-        {
-            if (_dwUIElementSinkCookie)
-            {
-                spSrcTIM->UnadviseSink(_dwUIElementSinkCookie);
-            }
-            if (_dwActivationSinkCookie)
-            {
-                spSrcTIM->UnadviseSink(_dwActivationSinkCookie);
-            }
-        }
+        _threadMgrExSource->UnadviseSink(_dwUIElementSinkCookie);
+        _threadMgrExSource->UnadviseSink(_dwActivationSinkCookie);
     }
-
-    _dwUIElementSinkCookie = 0;
-    _dwActivationSinkCookie = 0;
-
-    if (_spITfInputContext)
-    {
-        auto spSrcIC = _spITfInputContext.try_query<ITfSource>();
-        if (spSrcIC)
-        {
-            if (_dwContextOwnerCookie)
-            {
-                spSrcIC->UnadviseSink(_dwContextOwnerCookie);
-            }
-            if (_dwTextEditSinkCookie)
-            {
-                spSrcIC->UnadviseSink(_dwTextEditSinkCookie);
-            }
-        }
-    }
-    _dwContextOwnerCookie = 0;
-    _dwTextEditSinkCookie = 0;
 
     // Clear the Cicero reference to our document manager.
-
-    if (_spITfThreadMgr && _spITfDocumentMgr)
+    if (_threadMgrEx && _documentMgr)
     {
-        wil::com_ptr_nothrow<ITfDocumentMgr> spDocMgr;
-        _spITfThreadMgr->AssociateFocus(_hwndConsole, nullptr, &spDocMgr);
+        wil::com_ptr<ITfDocumentMgr> spPrevDocMgr;
+        _threadMgrEx->AssociateFocus(_hwndConsole, nullptr, spPrevDocMgr.addressof());
     }
 
     // Dismiss the input context and document manager.
-
-    if (_spITfDocumentMgr)
+    if (_documentMgr)
     {
-        _spITfDocumentMgr->Pop(TF_POPF_ALL);
+        _documentMgr->Pop(TF_POPF_ALL);
     }
 
-    _spITfInputContext.reset();
-    _spITfDocumentMgr.reset();
-
-    // Deactivate per-thread Cicero and uninitialize COM.
-
-    if (_spITfThreadMgr)
+    // Deactivate per-thread Cicero.
+    if (_threadMgrEx)
     {
-        _spITfThreadMgr->Deactivate();
-        _spITfThreadMgr.reset();
-    }
-    if (_fCoInitialized)
-    {
-        ::CoUninitialize();
-        _fCoInitialized = FALSE;
+        _threadMgrEx->Deactivate();
     }
 }
-
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::IUnknown::QueryInterface
-// CConsoleTSF::IUnknown::AddRef
-// CConsoleTSF::IUnknown::Release
-//
-//----------------------------------------------------------------------------
 
 STDMETHODIMP CConsoleTSF::QueryInterface(REFIID riid, void** ppvObj)
 {
     if (!ppvObj)
     {
-        return E_FAIL;
+        return E_POINTER;
     }
-    *ppvObj = nullptr;
 
-    if (IsEqualIID(riid, IID_ITfCleanupContextSink))
+    if (IsEqualGUID(riid, IID_ITfCleanupContextSink))
     {
         *ppvObj = static_cast<ITfCleanupContextSink*>(this);
     }
@@ -228,73 +113,64 @@ STDMETHODIMP CConsoleTSF::QueryInterface(REFIID riid, void** ppvObj)
     {
         *ppvObj = static_cast<ITfContextOwnerCompositionSink*>(this);
     }
-    else if (IsEqualIID(riid, IID_ITfUIElementSink))
+    else if (IsEqualGUID(riid, IID_ITfUIElementSink))
     {
         *ppvObj = static_cast<ITfUIElementSink*>(this);
     }
-    else if (IsEqualIID(riid, IID_ITfContextOwner))
+    else if (IsEqualGUID(riid, IID_ITfContextOwner))
     {
         *ppvObj = static_cast<ITfContextOwner*>(this);
     }
-    else if (IsEqualIID(riid, IID_ITfInputProcessorProfileActivationSink))
+    else if (IsEqualGUID(riid, IID_ITfInputProcessorProfileActivationSink))
     {
         *ppvObj = static_cast<ITfInputProcessorProfileActivationSink*>(this);
     }
-    else if (IsEqualIID(riid, IID_ITfTextEditSink))
+    else if (IsEqualGUID(riid, IID_ITfTextEditSink))
     {
         *ppvObj = static_cast<ITfTextEditSink*>(this);
     }
     else if (IsEqualGUID(riid, IID_IUnknown))
     {
-        *ppvObj = this;
+        *ppvObj = static_cast<IUnknown*>(static_cast<ITfContextOwner*>(this));
     }
-    if (*ppvObj)
+    else
     {
-        AddRef();
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
     }
-    return (*ppvObj) ? S_OK : E_NOINTERFACE;
+
+    AddRef();
+    return S_OK;
 }
 
-STDAPI_(ULONG)
-CConsoleTSF::AddRef()
+ULONG STDMETHODCALLTYPE CConsoleTSF::AddRef()
 {
-    return InterlockedIncrement(&_cRef);
+    return InterlockedIncrement(&_referenceCount);
 }
 
-STDAPI_(ULONG)
-CConsoleTSF::Release()
+ULONG STDMETHODCALLTYPE CConsoleTSF::Release()
 {
-    auto cr = InterlockedDecrement(&_cRef);
+    const auto cr = InterlockedDecrement(&_referenceCount);
     if (cr == 0)
     {
-        if (g_pConsoleTSF == this)
-        {
-            g_pConsoleTSF = nullptr;
-        }
         delete this;
     }
     return cr;
 }
-
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::ITfCleanupContextSink::OnCleanupContext
-//
-//----------------------------------------------------------------------------
 
 STDMETHODIMP CConsoleTSF::OnCleanupContext(TfEditCookie ecWrite, ITfContext* pic)
 {
     //
     // Remove GUID_PROP_COMPOSING
     //
-    wil::com_ptr_nothrow<ITfProperty> prop;
-    if (SUCCEEDED(pic->GetProperty(GUID_PROP_COMPOSING, &prop)))
+    wil::com_ptr<ITfProperty> prop;
+    if (SUCCEEDED(pic->GetProperty(GUID_PROP_COMPOSING, prop.addressof())))
     {
-        wil::com_ptr_nothrow<IEnumTfRanges> enumranges;
-        if (SUCCEEDED(prop->EnumRanges(ecWrite, &enumranges, nullptr)))
+        wil::com_ptr<IEnumTfRanges> enumranges;
+        if (SUCCEEDED(prop->EnumRanges(ecWrite, enumranges.addressof(), nullptr)))
         {
-            wil::com_ptr_nothrow<ITfRange> rangeTmp;
-            while (enumranges->Next(1, &rangeTmp, nullptr) == S_OK)
+            wil::com_ptr<ITfRange> rangeTmp;
+            while (enumranges->Next(1, rangeTmp.addressof(), nullptr) == S_OK)
             {
                 VARIANT var;
                 VariantInit(&var);
@@ -308,14 +184,6 @@ STDMETHODIMP CConsoleTSF::OnCleanupContext(TfEditCookie ecWrite, ITfContext* pic
     }
     return S_OK;
 }
-
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::ITfContextOwnerCompositionSink::OnStartComposition
-// CConsoleTSF::ITfContextOwnerCompositionSink::OnUpdateComposition
-// CConsoleTSF::ITfContextOwnerCompositionSink::OnEndComposition
-//
-//----------------------------------------------------------------------------
 
 STDMETHODIMP CConsoleTSF::OnStartComposition(ITfCompositionView* pCompView, BOOL* pfOk)
 {
@@ -369,12 +237,6 @@ STDMETHODIMP CConsoleTSF::OnEndComposition(ITfCompositionView* pCompView)
     return S_OK;
 }
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::ITfTextEditSink::OnEndEdit
-//
-//----------------------------------------------------------------------------
-
 STDMETHODIMP CConsoleTSF::OnEndEdit(ITfContext* pInputContext, TfEditCookie ecReadOnly, ITfEditRecord* pEditRecord)
 {
     if (_cCompositions && _pConversionArea && _HasCompositionChanged(pInputContext, ecReadOnly, pEditRecord))
@@ -384,19 +246,7 @@ STDMETHODIMP CConsoleTSF::OnEndEdit(ITfContext* pInputContext, TfEditCookie ecRe
     return S_OK;
 }
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::ITfInputProcessorProfileActivationSink::OnActivated
-//
-//----------------------------------------------------------------------------
-
-STDMETHODIMP CConsoleTSF::OnActivated(DWORD /*dwProfileType*/,
-                                      LANGID /*langid*/,
-                                      REFCLSID /*clsid*/,
-                                      REFGUID catid,
-                                      REFGUID /*guidProfile*/,
-                                      HKL /*hkl*/,
-                                      DWORD dwFlags)
+STDMETHODIMP CConsoleTSF::OnActivated(DWORD /*dwProfileType*/, LANGID /*langid*/, REFCLSID /*clsid*/, REFGUID catid, REFGUID /*guidProfile*/, HKL /*hkl*/, DWORD dwFlags)
 {
     if (!(dwFlags & TF_IPSINK_FLAG_ACTIVE))
     {
@@ -417,70 +267,40 @@ STDMETHODIMP CConsoleTSF::OnActivated(DWORD /*dwProfileType*/,
     return S_OK;
 }
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::ITfUIElementSink::BeginUIElement
-//
-//----------------------------------------------------------------------------
-
 STDMETHODIMP CConsoleTSF::BeginUIElement(DWORD /*dwUIElementId*/, BOOL* pbShow)
 {
     *pbShow = TRUE;
     return S_OK;
 }
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::ITfUIElementSink::UpdateUIElement
-//
-//----------------------------------------------------------------------------
-
 STDMETHODIMP CConsoleTSF::UpdateUIElement(DWORD /*dwUIElementId*/)
 {
     return S_OK;
 }
-
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::ITfUIElementSink::EndUIElement
-//
-//----------------------------------------------------------------------------
 
 STDMETHODIMP CConsoleTSF::EndUIElement(DWORD /*dwUIElementId*/)
 {
     return S_OK;
 }
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::CreateConversionAreaService
-//
-//----------------------------------------------------------------------------
-
 CConversionArea* CConsoleTSF::CreateConversionArea()
 {
-    BOOL fHadConvArea = (_pConversionArea != nullptr);
+    const bool fHadConvArea = (_pConversionArea != nullptr);
 
     if (!_pConversionArea)
     {
-        _pConversionArea = new CConversionArea();
+        _pConversionArea = std::make_unique<CConversionArea>();
     }
 
     // Associate the document\context with the console window.
     if (!fHadConvArea)
     {
-        wil::com_ptr_nothrow<ITfDocumentMgr> spPrevDocMgr;
-        _spITfThreadMgr->AssociateFocus(_hwndConsole, _pConversionArea ? _spITfDocumentMgr.get() : nullptr, &spPrevDocMgr);
+        wil::com_ptr<ITfDocumentMgr> spPrevDocMgr;
+        _threadMgrEx->AssociateFocus(_hwndConsole, _pConversionArea ? _documentMgr.get() : nullptr, spPrevDocMgr.addressof());
     }
 
-    return _pConversionArea;
+    return _pConversionArea.get();
 }
-
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::OnUpdateComposition()
-//
-//----------------------------------------------------------------------------
 
 [[nodiscard]] HRESULT CConsoleTSF::_OnUpdateComposition()
 {
@@ -490,12 +310,11 @@ CConversionArea* CConsoleTSF::CreateConversionArea()
     }
 
     auto hr = E_OUTOFMEMORY;
-    auto pEditSession = new (std::nothrow) CEditSessionUpdateCompositionString();
-    if (pEditSession)
+    if (const auto pEditSession = new (std::nothrow) CEditSessionUpdateCompositionString(this))
     {
         // Can't use TF_ES_SYNC because called from OnEndEdit.
         _fEditSessionRequested = TRUE;
-        _spITfInputContext->RequestEditSession(_tid, pEditSession, TF_ES_READWRITE, &hr);
+        _context->RequestEditSession(_tid, pEditSession, TF_ES_READWRITE, &hr);
         if (FAILED(hr))
         {
             pEditSession->Release();
@@ -505,23 +324,16 @@ CConversionArea* CConsoleTSF::CreateConversionArea()
     return hr;
 }
 
-//+---------------------------------------------------------------------------
-//
-// CConsoleTSF::OnCompleteComposition()
-//
-//----------------------------------------------------------------------------
-
 [[nodiscard]] HRESULT CConsoleTSF::_OnCompleteComposition()
 {
     // Update the composition area.
 
     auto hr = E_OUTOFMEMORY;
-    auto pEditSession = new (std::nothrow) CEditSessionCompositionComplete();
-    if (pEditSession)
+    if (const auto pEditSession = new (std::nothrow) CEditSessionCompositionComplete(this))
     {
         // The composition could have been finalized because of a caret move, therefore it must be
         // inserted synchronously while at the original caret position.(TF_ES_SYNC is ok for a nested RO session).
-        _spITfInputContext->RequestEditSession(_tid, pEditSession, TF_ES_READ | TF_ES_SYNC, &hr);
+        _context->RequestEditSession(_tid, pEditSession, TF_ES_READ | TF_ES_SYNC, &hr);
         if (FAILED(hr))
         {
             pEditSession->Release();
@@ -532,12 +344,11 @@ CConversionArea* CConsoleTSF::CreateConversionArea()
     if (!_fCleanupSessionRequested)
     {
         _fCleanupSessionRequested = TRUE;
-        auto pEditSessionCleanup = new (std::nothrow) CEditSessionCompositionCleanup();
-        if (pEditSessionCleanup)
+        if (const auto pEditSessionCleanup = new (std::nothrow) CEditSessionCompositionCleanup(this))
         {
             // Can't use TF_ES_SYNC because requesting RW while called within another session.
             // For the same reason, must use explicit TF_ES_ASYNC, or the request will be rejected otherwise.
-            _spITfInputContext->RequestEditSession(_tid, pEditSessionCleanup, TF_ES_READWRITE | TF_ES_ASYNC, &hr);
+            _context->RequestEditSession(_tid, pEditSessionCleanup, TF_ES_READWRITE | TF_ES_ASYNC, &hr);
             if (FAILED(hr))
             {
                 pEditSessionCleanup->Release();
@@ -546,4 +357,100 @@ CConversionArea* CConsoleTSF::CreateConversionArea()
         }
     }
     return hr;
+}
+
+static wil::com_ptr<ITfRange> getTrackCompositionProperty(ITfContext* context, TfEditCookie ec)
+{
+    wil::com_ptr<ITfProperty> Property;
+    if (FAILED(context->GetProperty(GUID_PROP_CONIME_TRACKCOMPOSITION, &Property)))
+    {
+        return {};
+    }
+
+    wil::com_ptr<IEnumTfRanges> ranges;
+    if (FAILED(Property->EnumRanges(ec, ranges.addressof(), NULL)))
+    {
+        return {};
+    }
+
+    VARIANT var{ .vt = VT_EMPTY };
+    wil::com_ptr<ITfRange> range;
+    while (ranges->Next(1, range.put(), nullptr) == S_OK)
+    {
+        if (SUCCEEDED(Property->GetValue(ec, range.get(), &var)) && V_VT(&var) == VT_I4 && V_I4(&var) != 0)
+        {
+            return range;
+        }
+        VariantClear(&var);
+    }
+
+    return {};
+}
+
+bool CConsoleTSF::_HasCompositionChanged(ITfContext* context, TfEditCookie ec, ITfEditRecord* editRecord)
+{
+    BOOL changed;
+    if (SUCCEEDED(editRecord->GetSelectionStatus(&changed)) && changed)
+    {
+        return TRUE;
+    }
+
+    const auto rangeTrackComposition = getTrackCompositionProperty(context, ec);
+    // If there is no track composition property,
+    // the composition has been changed since we put it.
+    if (!rangeTrackComposition)
+    {
+        return TRUE;
+    }
+
+    // Get the text range that does not include read only area for reconversion.
+    wil::com_ptr<ITfRange> rangeAllText;
+    LONG cch;
+    if (FAILED(CEditSessionObject::GetAllTextRange(ec, context, rangeAllText.addressof(), &cch)))
+    {
+        return FALSE;
+    }
+
+    // If the start position of the track composition range is not the beginning of IC,
+    // the composition has been changed since we put it.
+    LONG lResult;
+    if (FAILED(rangeTrackComposition->CompareStart(ec, rangeAllText.get(), TF_ANCHOR_START, &lResult)))
+    {
+        return FALSE;
+    }
+    if (lResult != 0)
+    {
+        return TRUE;
+    }
+
+    if (FAILED(rangeTrackComposition->CompareEnd(ec, rangeAllText.get(), TF_ANCHOR_END, &lResult)))
+    {
+        return FALSE;
+    }
+    if (lResult != 0)
+    {
+        return TRUE;
+    }
+
+    // If the start position of the track composition range is not the beginning of IC,
+    // the composition has been changed since we put it.
+    //
+    // If we find the changes in these property, we need to update hIMC.
+    const GUID* guids[] = { &GUID_PROP_COMPOSING, &GUID_PROP_ATTRIBUTE };
+    wil::com_ptr<IEnumTfRanges> EnumPropertyChanged;
+    if (FAILED(editRecord->GetTextAndPropertyUpdates(TF_GTP_INCL_TEXT, guids, ARRAYSIZE(guids), EnumPropertyChanged.addressof())))
+    {
+        return FALSE;
+    }
+
+    wil::com_ptr<ITfRange> range;
+    while (EnumPropertyChanged->Next(1, range.put(), nullptr) == S_OK)
+    {
+        BOOL empty;
+        if (range->IsEmpty(ec, &empty) != S_OK || !empty)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
 }

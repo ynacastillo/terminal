@@ -9,7 +9,6 @@
 
 #include "conareainfo.h"
 #include "_output.h"
-#include "dbcs.h"
 #include "../interactivity/inc/ServiceLocator.hpp"
 #include "../types/inc/GlyphWidth.hpp"
 
@@ -17,11 +16,6 @@
 #define COMMON_LVB_GRID_SINGLEFLAG 0x2000 // DBCS: Grid attribute: use for ime cursor.
 
 using Microsoft::Console::Interactivity::ServiceLocator;
-
-ConsoleImeInfo::ConsoleImeInfo() :
-    _isSavedCursorVisible(false)
-{
-}
 
 // Routine Description:
 // - Copies default attribute (color) data from the active screen buffer into the conversion area buffers
@@ -44,7 +38,7 @@ void ConsoleImeInfo::RedrawCompMessage()
     if (!_text.empty())
     {
         ClearAllAreas();
-        _WriteUndeterminedChars(_text, _attributes, _colorArray);
+        _WriteUndeterminedChars(_text, _attributes);
     }
 }
 
@@ -56,9 +50,7 @@ void ConsoleImeInfo::RedrawCompMessage()
 // - text - The actual text of what the user would like to insert (UTF-16)
 // - attributes - Encoded attributes including the cursor position and the color index (to the array)
 // - colorArray - An array of colors to use for the text
-void ConsoleImeInfo::WriteCompMessage(const std::wstring_view text,
-                                      const std::span<const BYTE> attributes,
-                                      const std::span<const WORD> colorArray)
+void ConsoleImeInfo::WriteCompMessage(const std::wstring_view text, const std::span<const BYTE> attributes)
 {
     ClearAllAreas();
 
@@ -69,9 +61,8 @@ void ConsoleImeInfo::WriteCompMessage(const std::wstring_view text,
     // Save copies of the composition message in case we need to redraw it as things scroll/resize
     _text = text;
     _attributes.assign(attributes.begin(), attributes.end());
-    _colorArray.assign(colorArray.begin(), colorArray.end());
 
-    _WriteUndeterminedChars(text, attributes, colorArray);
+    _WriteUndeterminedChars(text, attributes);
 }
 
 // Routine Description:
@@ -94,7 +85,6 @@ void ConsoleImeInfo::_ClearComposition()
 {
     _text.clear();
     _attributes.clear();
-    _colorArray.clear();
 }
 
 // Routine Description:
@@ -141,7 +131,7 @@ void ConsoleImeInfo::ClearAllAreas()
 // - <none>
 // Return Value:
 // - Status successful or appropriate HRESULT response.
-[[nodiscard]] HRESULT ConsoleImeInfo::_AddConversionArea()
+void ConsoleImeInfo::_AddConversionArea()
 {
     const auto& gci = ServiceLocator::LocateGlobals().getConsoleInformation();
 
@@ -149,26 +139,13 @@ void ConsoleImeInfo::ClearAllAreas()
     bufferSize.height = 1;
 
     const auto windowSize = gci.GetActiveOutputBuffer().GetViewport().Dimensions();
-
     const auto fill = gci.GetActiveOutputBuffer().GetAttributes();
-
     const auto popupFill = gci.GetActiveOutputBuffer().GetPopupAttributes();
-
     const auto& fontInfo = gci.GetActiveOutputBuffer().GetCurrentFont();
 
-    try
-    {
-        ConvAreaCompStr.emplace_back(bufferSize,
-                                     windowSize,
-                                     fill,
-                                     popupFill,
-                                     fontInfo);
-    }
-    CATCH_RETURN();
+    ConvAreaCompStr.emplace_back(bufferSize, windowSize, fill, popupFill, fontInfo);
 
     RefreshAreaAttributes();
-
-    return S_OK;
 }
 
 // Routine Description:
@@ -180,10 +157,20 @@ void ConsoleImeInfo::ClearAllAreas()
 // - colorArray - Colors to choose from
 // Return Value:
 // - TextAttribute object with color and cursor and line drawing data.
-TextAttribute ConsoleImeInfo::s_RetrieveAttributeAt(const size_t pos,
-                                                    const std::span<const BYTE> attributes,
-                                                    const std::span<const WORD> colorArray)
+TextAttribute ConsoleImeInfo::s_RetrieveAttributeAt(const size_t pos, const std::span<const BYTE> attributes)
 {
+    // Set up colors.
+    static const std::array<WORD, CONIME_ATTRCOLOR_SIZE> colorArray{
+        DEFAULT_COMP_ENTERED,
+        DEFAULT_COMP_ALREADY_CONVERTED,
+        DEFAULT_COMP_CONVERSION,
+        DEFAULT_COMP_YET_CONVERTED,
+        DEFAULT_COMP_INPUT_ERROR,
+        DEFAULT_COMP_INPUT_ERROR,
+        DEFAULT_COMP_INPUT_ERROR,
+        DEFAULT_COMP_INPUT_ERROR,
+    };
+
     // Encoded attribute is the shorthand information passed from the IME
     // that contains a cursor position packed in along with which color in the
     // given array should apply to the text.
@@ -209,27 +196,44 @@ TextAttribute ConsoleImeInfo::s_RetrieveAttributeAt(const size_t pos,
 }
 
 // Routine Description:
-// - Converts IME-formatted information into OutputCells to determine what can fit into each
-//   displayable cell inside the console output buffer.
+// - Takes information from the IME message to write the "undetermined" text to the
+//   conversion area overlays on the screen.
+// - The "undetermined" text represents the word or phrase that the user is currently building
+//   using the IME. They haven't "determined" what they want yet, so it's "undetermined" right now.
 // Arguments:
-// - text - Text data provided by the IME
-// - attributes - Encoded color and cursor position data provided by the IME
-// - colorArray - Array of color values provided by the IME.
-// Return Value:
-// - Vector of OutputCells where each one represents one cell of the output buffer.
-std::vector<OutputCell> ConsoleImeInfo::s_ConvertToCells(const std::wstring_view text,
-                                                         const std::span<const BYTE> attributes,
-                                                         const std::span<const WORD> colorArray)
+// - text - View into the text characters provided by the IME.
+// - attributes - Attributes specifying which color and cursor positioning information should apply to
+//                each text character. This view must be the same size as the text view.
+// - colorArray - 8 colors to be used to format the text for display
+void ConsoleImeInfo::_WriteUndeterminedChars(const std::wstring_view text,
+                                             const std::span<const BYTE> attributes)
 {
-    std::vector<OutputCell> cells;
+    auto& gci = ServiceLocator::LocateGlobals().getConsoleInformation();
+    auto& screenInfo = gci.GetActiveOutputBuffer();
 
+    // Ensure cursor is visible for prompt line
+    screenInfo.MakeCurrentCursorVisible();
+
+    // Clear out existing conversion areas.
+    ConvAreaCompStr.clear();
+
+    // If the text length and attribute length don't match,
+    // it's a programming error on our part. We control the sizes here.
+    FAIL_FAST_IF(text.size() != attributes.size());
+
+    // If we have no text, return. We've already cleared above.
+    if (text.empty())
+    {
+        return;
+    }
+
+    std::vector<OutputCell> cells;
     // - Walk through all of the grouped up text, match up the correct attribute to it, and make a new cell.
     size_t attributesUsed = 0;
-    for (const auto& parsedGlyph : til::utf16_iterator{ text })
+    for (const auto& glyph : til::utf16_iterator{ text })
     {
-        const std::wstring_view glyph{ parsedGlyph.data(), parsedGlyph.size() };
         // Collect up attributes that apply to this glyph range.
-        auto drawingAttr = s_RetrieveAttributeAt(attributesUsed, attributes, colorArray);
+        auto drawingAttr = s_RetrieveAttributeAt(attributesUsed, attributes);
         attributesUsed++;
 
         // The IME gave us an attribute for every glyph position in a surrogate pair.
@@ -237,7 +241,7 @@ std::vector<OutputCell> ConsoleImeInfo::s_ConvertToCells(const std::wstring_view
         // Check all additional attributes to see if the cursor resides on top of them.
         for (size_t i = 1; i < glyph.size(); i++)
         {
-            auto additionalAttr = s_RetrieveAttributeAt(attributesUsed, attributes, colorArray);
+            auto additionalAttr = s_RetrieveAttributeAt(attributesUsed, attributes);
             attributesUsed++;
             if (additionalAttr.IsLeftVerticalDisplayed())
             {
@@ -283,146 +287,6 @@ std::vector<OutputCell> ConsoleImeInfo::s_ConvertToCells(const std::wstring_view
         }
     }
 
-    return cells;
-}
-
-// Routine Description:
-// - Walks through the cells given and attempts to fill a conversion area line with as much data as can fit.
-// - Each conversion area represents one line of the display starting at the cursor position filling to the right edge
-//   of the display.
-// - The first conversion area should be placed from the screen buffer's current cursor position to the right
-//   edge of the viewport.
-// - All subsequent areas should use one entire line of the viewport.
-// Arguments:
-// - begin - Beginning position in OutputCells for iteration
-// - end - Ending position in OutputCells for iteration
-// - pos - Reference to the coordinate position in the viewport that this conversion area will occupy.
-//       - Updated to set up the next conversion area down a line (and to the left viewport edge)
-// - view - The rectangle representing the viewable area of the screen right now to let us know how many cells can fit.
-// - screenInfo - A reference to the screen information we will use for accessibility notifications
-// Return Value:
-// - Updated begin position for the next call. It will normally be >begin and <= end.
-//   However, if text couldn't fit in our line (full-width character starting at the very last cell)
-//   then we will give back the same begin and update the position for the next call to try again.
-//   If the viewport is deemed too small, we'll skip past it and advance begin past the entire full-width character.
-std::vector<OutputCell>::const_iterator ConsoleImeInfo::_WriteConversionArea(const std::vector<OutputCell>::const_iterator begin,
-                                                                             const std::vector<OutputCell>::const_iterator end,
-                                                                             til::point& pos,
-                                                                             const Microsoft::Console::Types::Viewport view,
-                                                                             SCREEN_INFORMATION& screenInfo)
-{
-    // The position in the viewport where we will start inserting cells for this conversion area
-    // NOTE: We might exit early if there's not enough space to fit here, so we take a copy of
-    //       the original and increment it up front.
-    const auto insertionPos = pos;
-
-    // Advance the cursor position to set up the next call for success (insert the next conversion area
-    // at the beginning of the following line)
-    pos.x = view.Left();
-    pos.y++;
-
-    // The index of the last column in the viewport. (view is inclusive)
-    const auto finalViewColumn = view.RightInclusive();
-
-    // The maximum number of cells we can insert into a line.
-    const auto lineWidth = finalViewColumn - insertionPos.x + 1; // +1 because view was inclusive
-
-    // The iterator to the beginning position to form our line
-    const auto lineBegin = begin;
-
-    // The total number of cells we could insert.
-    const auto size = end - begin;
-    FAIL_FAST_IF(size <= 0); // It's a programming error to have <= 0 cells to insert.
-
-    // The end is the smaller of the remaining number of cells or the amount of line cells we can write before
-    // hitting the right edge of the viewport
-    auto lineEnd = lineBegin + std::min(size, (ptrdiff_t)lineWidth);
-
-    // We must attempt to compensate for ending on a leading byte. We can't split a full-width character across lines.
-    // As such, if the last item is a leading byte, back the end up by one.
-    // Get the last cell in the run and if it's a leading byte, move the end position back one so we don't
-    // try to insert it.
-    const auto lastCell = lineEnd - 1;
-    if (lastCell->DbcsAttr() == DbcsAttribute::Leading)
-    {
-        lineEnd--;
-    }
-
-    // GH#12730 - if the lineVec would now be empty, just return early. Failing
-    // to do so will later cause a crash trying to construct an empty view.
-    if (lineEnd <= lineBegin)
-    {
-        return lineEnd;
-    }
-
-    // Copy out the substring into a vector.
-    const std::vector<OutputCell> lineVec(lineBegin, lineEnd);
-
-    // Add a conversion area to the internal state to hold this line.
-    THROW_IF_FAILED(_AddConversionArea());
-
-    // Get the added conversion area.
-    auto& area = ConvAreaCompStr.back();
-
-    // Write our text into the conversion area.
-    area.WriteText(lineVec, insertionPos.x);
-
-    // Set the viewport and positioning parameters for the conversion area to describe to the renderer
-    // the appropriate location to overlay this conversion area on top of the main screen buffer inside the viewport.
-    const til::inclusive_rect region{ insertionPos.x, 0, gsl::narrow<til::CoordType>(insertionPos.x + lineVec.size() - 1), 0 };
-    area.SetWindowInfo(region);
-    area.SetViewPos({ 0 - view.Left(), insertionPos.y - view.Top() });
-
-    // Make it visible and paint it.
-    area.SetHidden(false);
-    area.Paint();
-
-    // Notify accessibility that we have updated the text in this display region within the viewport.
-    if (screenInfo.HasAccessibilityEventing())
-    {
-        screenInfo.NotifyAccessibilityEventing(region.left, insertionPos.y, region.right, insertionPos.y);
-    }
-
-    // Hand back the iterator representing the end of what we used to be fed into the beginning of the next call.
-    return lineEnd;
-}
-
-// Routine Description:
-// - Takes information from the IME message to write the "undetermined" text to the
-//   conversion area overlays on the screen.
-// - The "undetermined" text represents the word or phrase that the user is currently building
-//   using the IME. They haven't "determined" what they want yet, so it's "undetermined" right now.
-// Arguments:
-// - text - View into the text characters provided by the IME.
-// - attributes - Attributes specifying which color and cursor positioning information should apply to
-//                each text character. This view must be the same size as the text view.
-// - colorArray - 8 colors to be used to format the text for display
-void ConsoleImeInfo::_WriteUndeterminedChars(const std::wstring_view text,
-                                             const std::span<const BYTE> attributes,
-                                             const std::span<const WORD> colorArray)
-{
-    auto& gci = ServiceLocator::LocateGlobals().getConsoleInformation();
-    auto& screenInfo = gci.GetActiveOutputBuffer();
-
-    // Ensure cursor is visible for prompt line
-    screenInfo.MakeCurrentCursorVisible();
-
-    // Clear out existing conversion areas.
-    ConvAreaCompStr.clear();
-
-    // If the text length and attribute length don't match,
-    // it's a programming error on our part. We control the sizes here.
-    FAIL_FAST_IF(text.size() != attributes.size());
-
-    // If we have no text, return. We've already cleared above.
-    if (text.empty())
-    {
-        return;
-    }
-
-    // Convert data-to-be-stored into OutputCells.
-    const auto cells = s_ConvertToCells(text, attributes, colorArray);
-
     // Get some starting position information of where to place the conversion areas on top of the existing
     // screen buffer and viewport positioning.
     // Each conversion area write will adjust these to set up any subsequent calls to go onto the next line.
@@ -443,7 +307,66 @@ void ConsoleImeInfo::_WriteUndeterminedChars(const std::wstring_view text,
     // Write over and over updating the beginning iterator until we reach the end.
     do
     {
-        begin = _WriteConversionArea(begin, end, pos, view, screenInfo);
+        // The position in the viewport where we will start inserting cells for this conversion area
+        // NOTE: We might exit early if there's not enough space to fit here, so we take a copy of
+        //       the original and increment it up front.
+        const auto insertionPos = pos;
+        // Advance the cursor position to set up the next call for success (insert the next conversion area
+        // at the beginning of the following line)
+        pos.x = view.Left();
+        pos.y++;
+        // The index of the last column in the viewport. (view is inclusive)
+        const auto finalViewColumn = view.RightInclusive();
+        // The maximum number of cells we can insert into a line.
+        const auto lineWidth = finalViewColumn - insertionPos.x + 1; // +1 because view was inclusive
+        // The iterator to the beginning position to form our line
+        const auto lineBegin = begin;
+        // The total number of cells we could insert.
+        const auto size = end - begin;
+        FAIL_FAST_IF(size <= 0); // It's a programming error to have <= 0 cells to insert.
+        // The end is the smaller of the remaining number of cells or the amount of line cells we can write before
+        // hitting the right edge of the viewport
+        auto lineEnd = lineBegin + std::min(size, static_cast<ptrdiff_t>(lineWidth));
+        // We must attempt to compensate for ending on a leading byte. We can't split a full-width character across lines.
+        // As such, if the last item is a leading byte, back the end up by one.
+        // Get the last cell in the run and if it's a leading byte, move the end position back one so we don't
+        // try to insert it.
+        const auto lastCell = lineEnd - 1;
+        if (lastCell->DbcsAttr() == DbcsAttribute::Leading)
+        {
+            --lineEnd;
+        }
+
+        // GH#12730 - if the lineVec would now be empty, just return early. Failing
+        // to do so will later cause a crash trying to construct an empty view.
+        if (lineEnd <= lineBegin)
+        {
+            begin = lineEnd;
+            continue;
+        }
+        // Copy out the substring into a vector.
+        const std::vector<OutputCell> lineVec(lineBegin, lineEnd);
+        // Add a conversion area to the internal state to hold this line.
+        _AddConversionArea();
+        // Get the added conversion area.
+        auto& area = ConvAreaCompStr.back();
+        // Write our text into the conversion area.
+        area.WriteText(lineVec, insertionPos.x);
+        // Set the viewport and positioning parameters for the conversion area to describe to the renderer
+        // the appropriate location to overlay this conversion area on top of the main screen buffer inside the viewport.
+        const til::inclusive_rect region{ insertionPos.x, 0, gsl::narrow<int>(insertionPos.x + lineVec.size() - 1), 0 };
+        area.SetWindowInfo(region);
+        area.SetViewPos({ 0 - view.Left(), insertionPos.y - view.Top() });
+        // Make it visible and paint it.
+        area.SetHidden(false);
+        area.Paint();
+        // Notify accessibility that we have updated the text in this display region within the viewport.
+        if (screenInfo.HasAccessibilityEventing())
+        {
+            screenInfo.NotifyAccessibilityEventing(region.left, insertionPos.y, region.right, insertionPos.y);
+        }
+        // Hand back the iterator representing the end of what we used to be fed into the beginning of the next call.
+        begin = lineEnd;
     } while (begin < end);
 }
 

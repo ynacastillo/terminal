@@ -857,7 +857,9 @@ void Window::_HandleWindowPosChanged(const LPARAM lParam)
 // - <none>
 void Window::_HandleDrop(const WPARAM wParam) const
 {
-    Clipboard::Instance().PasteDrop((HDROP)wParam);
+    const auto drop = reinterpret_cast<HDROP>(wParam);
+    Clipboard::Instance().PasteDrop(drop);
+    DragFinish(drop);
 }
 
 [[nodiscard]] LRESULT Window::_HandleGetObject(const HWND hwnd, const WPARAM wParam, const LPARAM lParam)

@@ -21,6 +21,8 @@ Notes:
 
 #pragma once
 
+class CCompCursorPos;
+class CConsoleTSF;
 class CicCategoryMgr;
 class CicDisplayAttributeMgr;
 
@@ -41,23 +43,15 @@ const GUID GUID_PROP_CONIME_TRACKCOMPOSITION = {
 class CEditSessionObject : public ITfEditSession
 {
 public:
-    CEditSessionObject() :
-        m_cRef(1) {}
+    CEditSessionObject(CConsoleTSF* tsf);
     virtual ~CEditSessionObject() = default;
 
-public:
-    //
     // IUnknown methods
-    //
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj);
-    STDMETHODIMP_(ULONG)
-    AddRef(void);
-    STDMETHODIMP_(ULONG)
-    Release(void);
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
+    ULONG STDMETHODCALLTYPE AddRef() override;
+    ULONG STDMETHODCALLTYPE Release() override;
 
-    //
     // ITfEditSession method
-    //
     STDMETHODIMP DoEditSession(TfEditCookie ec)
     {
         auto hr = _DoEditSession(ec);
@@ -65,80 +59,25 @@ public:
         return hr;
     }
 
-    //
-    // ImmIfSessionObject methods
-    //
+    [[nodiscard]] static HRESULT GetAllTextRange(TfEditCookie ec, ITfContext* ic, ITfRange** range, LONG* lpTextLength, TF_HALTCOND* lpHaltCond = nullptr);
+
 protected:
+    [[nodiscard]] HRESULT SetTextInRange(TfEditCookie ec, ITfRange* range, __in_ecount_opt(len) LPWSTR psz, DWORD len);
+    [[nodiscard]] HRESULT ClearTextInRange(TfEditCookie ec, ITfRange* range);
+
+    [[nodiscard]] HRESULT _GetTextAndAttribute(TfEditCookie ec, ITfRange* range, std::wstring& CompStr, std::vector<TfGuidAtom> CompGuid, BOOL bInWriteSession, CicCategoryMgr* pCicCatMgr, CicDisplayAttributeMgr* pCicDispAttr);
+    [[nodiscard]] HRESULT _GetTextAndAttribute(TfEditCookie ec, ITfRange* range, std::wstring& CompStr, std::vector<TfGuidAtom>& CompGuid, std::wstring& ResultStr, BOOL bInWriteSession, CicCategoryMgr* pCicCatMgr, CicDisplayAttributeMgr* pCicDispAttr);
+    [[nodiscard]] HRESULT _GetTextAndAttributeGapRange(TfEditCookie ec, ITfRange* gap_range, LONG result_comp, std::wstring& CompStr, std::vector<TfGuidAtom>& CompGuid, std::wstring& ResultStr);
+    [[nodiscard]] HRESULT _GetTextAndAttributePropertyRange(TfEditCookie ec, ITfRange* pPropRange, BOOL fDispAttribute, LONG result_comp, BOOL bInWriteSession, TF_DISPLAYATTRIBUTE da, TfGuidAtom guidatom, std::wstring& CompStr, std::vector<TfGuidAtom>& CompGuid, std::wstring& ResultStr);
+    [[nodiscard]] HRESULT _GetNoDisplayAttributeRange(TfEditCookie ec, ITfRange* range, const GUID** guids, const int guid_size, ITfRange* no_display_attribute_range);
+    [[nodiscard]] HRESULT _GetCursorPosition(TfEditCookie ec, CCompCursorPos& CompCursorPos);
+
     [[nodiscard]] virtual HRESULT _DoEditSession(TfEditCookie ec) = 0;
 
-    //
-    // EditSession methods.
-    //
-public:
-    [[nodiscard]] static HRESULT GetAllTextRange(TfEditCookie ec,
-                                                 ITfContext* ic,
-                                                 ITfRange** range,
-                                                 LONG* lpTextLength,
-                                                 TF_HALTCOND* lpHaltCond = nullptr);
-
-protected:
-    [[nodiscard]] HRESULT SetTextInRange(TfEditCookie ec,
-                                         ITfRange* range,
-                                         __in_ecount_opt(len) LPWSTR psz,
-                                         DWORD len);
-    [[nodiscard]] HRESULT ClearTextInRange(TfEditCookie ec,
-                                           ITfRange* range);
-
-    [[nodiscard]] HRESULT _GetTextAndAttribute(TfEditCookie ec,
-                                               ITfRange* range,
-                                               std::wstring& CompStr,
-                                               std::vector<TfGuidAtom> CompGuid,
-                                               BOOL bInWriteSession,
-                                               CicCategoryMgr* pCicCatMgr,
-                                               CicDisplayAttributeMgr* pCicDispAttr)
-    {
-        std::wstring ResultStr;
-        return _GetTextAndAttribute(ec, range, CompStr, CompGuid, ResultStr, bInWriteSession, pCicCatMgr, pCicDispAttr);
-    }
-
-    [[nodiscard]] HRESULT _GetTextAndAttribute(TfEditCookie ec,
-                                               ITfRange* range,
-                                               std::wstring& CompStr,
-                                               std::vector<TfGuidAtom>& CompGuid,
-                                               std::wstring& ResultStr,
-                                               BOOL bInWriteSession,
-                                               CicCategoryMgr* pCicCatMgr,
-                                               CicDisplayAttributeMgr* pCicDispAttr);
-
-    [[nodiscard]] HRESULT _GetTextAndAttributeGapRange(TfEditCookie ec,
-                                                       ITfRange* gap_range,
-                                                       LONG result_comp,
-                                                       std::wstring& CompStr,
-                                                       std::vector<TfGuidAtom>& CompGuid,
-                                                       std::wstring& ResultStr);
-
-    [[nodiscard]] HRESULT _GetTextAndAttributePropertyRange(TfEditCookie ec,
-                                                            ITfRange* pPropRange,
-                                                            BOOL fDispAttribute,
-                                                            LONG result_comp,
-                                                            BOOL bInWriteSession,
-                                                            TF_DISPLAYATTRIBUTE da,
-                                                            TfGuidAtom guidatom,
-                                                            std::wstring& CompStr,
-                                                            std::vector<TfGuidAtom>& CompGuid,
-                                                            std::wstring& ResultStr);
-
-    [[nodiscard]] HRESULT _GetNoDisplayAttributeRange(TfEditCookie ec,
-                                                      ITfRange* range,
-                                                      const GUID** guids,
-                                                      const int guid_size,
-                                                      ITfRange* no_display_attribute_range);
-
-    [[nodiscard]] HRESULT _GetCursorPosition(TfEditCookie ec,
-                                             CCompCursorPos& CompCursorPos);
+    CConsoleTSF* _tsf = nullptr;
 
 private:
-    int m_cRef;
+    ULONG _referenceCount = 1;
 };
 
 //+---------------------------------------------------------------------------
@@ -150,7 +89,7 @@ private:
 class CEditSessionCompositionComplete : public CEditSessionObject
 {
 public:
-    CEditSessionCompositionComplete() = default;
+    using CEditSessionObject::CEditSessionObject;
 
     [[nodiscard]] HRESULT _DoEditSession(TfEditCookie ec)
     {
@@ -169,7 +108,7 @@ public:
 class CEditSessionCompositionCleanup : public CEditSessionObject
 {
 public:
-    CEditSessionCompositionCleanup() = default;
+    using CEditSessionObject::CEditSessionObject;
 
     [[nodiscard]] HRESULT _DoEditSession(TfEditCookie ec)
     {
@@ -188,7 +127,7 @@ public:
 class CEditSessionUpdateCompositionString : public CEditSessionObject
 {
 public:
-    CEditSessionUpdateCompositionString() = default;
+    using CEditSessionObject::CEditSessionObject;
 
     [[nodiscard]] HRESULT _DoEditSession(TfEditCookie ec)
     {
@@ -199,21 +138,7 @@ public:
 
 private:
     [[nodiscard]] HRESULT _IsInterimSelection(TfEditCookie ec, ITfRange** pInterimRange, BOOL* pfInterim);
-
-    [[nodiscard]] HRESULT _MakeCompositionString(TfEditCookie ec,
-                                                 ITfRange* FullTextRange,
-                                                 BOOL bInWriteSession,
-                                                 CicCategoryMgr* pCicCatMgr,
-                                                 CicDisplayAttributeMgr* pCicDispAttr);
-
-    [[nodiscard]] HRESULT _MakeInterimString(TfEditCookie ec,
-                                             ITfRange* FullTextRange,
-                                             ITfRange* InterimRange,
-                                             LONG lTextLength,
-                                             BOOL bInWriteSession,
-                                             CicCategoryMgr* pCicCatMgr,
-                                             CicDisplayAttributeMgr* pCicDispAttr);
-
-    [[nodiscard]] HRESULT _CreateCategoryAndDisplayAttributeManager(CicCategoryMgr** pCicCatMgr,
-                                                                    CicDisplayAttributeMgr** pCicDispAttr);
+    [[nodiscard]] HRESULT _MakeCompositionString(TfEditCookie ec, ITfRange* FullTextRange, BOOL bInWriteSession, CicCategoryMgr* pCicCatMgr, CicDisplayAttributeMgr* pCicDispAttr);
+    [[nodiscard]] HRESULT _MakeInterimString(TfEditCookie ec, ITfRange* FullTextRange, ITfRange* InterimRange, LONG lTextLength, BOOL bInWriteSession, CicCategoryMgr* pCicCatMgr, CicDisplayAttributeMgr* pCicDispAttr);
+    [[nodiscard]] HRESULT _CreateCategoryAndDisplayAttributeManager(CicCategoryMgr** pCicCatMgr, CicDisplayAttributeMgr** pCicDispAttr);
 };

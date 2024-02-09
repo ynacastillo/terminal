@@ -32,23 +32,8 @@ Notes:
                                                        const std::vector<TF_DISPLAYATTRIBUTE>& DisplayAttributes,
                                                        const DWORD CompCursorPos)
 {
-    // Set up colors.
-    static const std::array<WORD, CONIME_ATTRCOLOR_SIZE> colors{ DEFAULT_COMP_ENTERED,
-                                                                 DEFAULT_COMP_ALREADY_CONVERTED,
-                                                                 DEFAULT_COMP_CONVERSION,
-                                                                 DEFAULT_COMP_YET_CONVERTED,
-                                                                 DEFAULT_COMP_INPUT_ERROR,
-                                                                 DEFAULT_COMP_INPUT_ERROR,
-                                                                 DEFAULT_COMP_INPUT_ERROR,
-                                                                 DEFAULT_COMP_INPUT_ERROR };
-
-    const auto encodedAttributes = _DisplayAttributesToEncodedAttributes(DisplayAttributes,
-                                                                         CompCursorPos);
-
-    std::span<const BYTE> attributes(encodedAttributes.data(), encodedAttributes.size());
-    std::span<const WORD> colorArray(colors.data(), colors.size());
-
-    return ImeComposeData(CompStr, attributes, colorArray);
+    const auto encodedAttributes = _DisplayAttributesToEncodedAttributes(DisplayAttributes, CompCursorPos);
+    return ImeComposeData(CompStr, encodedAttributes);
 }
 
 [[nodiscard]] HRESULT CConversionArea::ClearComposition()

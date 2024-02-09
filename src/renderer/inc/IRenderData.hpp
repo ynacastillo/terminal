@@ -14,10 +14,12 @@ Author(s):
 
 #pragma once
 
-#include "../../host/conimeinfo.h"
 #include "../../buffer/out/TextAttribute.hpp"
+#include "../../renderer/inc/FontInfo.hpp"
+#include "../../types/inc/viewport.hpp"
 
 class Cursor;
+class TextBuffer;
 
 namespace Microsoft::Console::Render
 {

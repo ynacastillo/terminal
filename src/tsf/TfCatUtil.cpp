@@ -22,33 +22,10 @@ Notes:
 #include "precomp.h"
 #include "TfCatUtil.h"
 
-//+---------------------------------------------------------------------------
-//
-// CicCategoryMgr::ctor
-// CicCategoryMgr::dtor
-//
-//----------------------------------------------------------------------------
-
-CicCategoryMgr::CicCategoryMgr() = default;
-
-CicCategoryMgr::~CicCategoryMgr() = default;
-
-//+---------------------------------------------------------------------------
-//
-// CicCategoryMgr::GetGUIDFromGUIDATOM
-//
-//----------------------------------------------------------------------------
-
 [[nodiscard]] HRESULT CicCategoryMgr::GetGUIDFromGUIDATOM(TfGuidAtom guidatom, GUID* pguid)
 {
     return m_pcat->GetGUID(guidatom, pguid);
 }
-
-//+---------------------------------------------------------------------------
-//
-// CicCategoryMgr::InitCategoryInstance
-//
-//----------------------------------------------------------------------------
 
 [[nodiscard]] HRESULT CicCategoryMgr::InitCategoryInstance()
 {
@@ -56,4 +33,9 @@ CicCategoryMgr::~CicCategoryMgr() = default;
     // Create ITfCategoryMgr instance.
     //
     return ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&m_pcat));
+}
+
+ITfCategoryMgr* CicCategoryMgr::GetCategoryMgr()
+{
+    return m_pcat.get();
 }

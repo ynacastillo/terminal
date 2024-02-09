@@ -197,3 +197,8 @@ CicDisplayAttributeMgr::~CicDisplayAttributeMgr() = default;
     }
     return hr;
 }
+
+ITfDisplayAttributeMgr* CicDisplayAttributeMgr::GetDisplayAttributeMgr()
+{
+    return m_pDAM.get();
+}

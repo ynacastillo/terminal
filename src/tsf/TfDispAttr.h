@@ -28,22 +28,10 @@ public:
     virtual ~CicDisplayAttributeMgr();
 
 public:
-    [[nodiscard]] HRESULT GetDisplayAttributeTrackPropertyRange(TfEditCookie ec,
-                                                                ITfContext* pic,
-                                                                ITfRange* pRange,
-                                                                ITfReadOnlyProperty** ppProp,
-                                                                IEnumTfRanges** ppEnum,
-                                                                ULONG* pulNumProp);
-    [[nodiscard]] HRESULT GetDisplayAttributeData(ITfCategoryMgr* pcat,
-                                                  TfEditCookie ec,
-                                                  ITfReadOnlyProperty* pProp,
-                                                  ITfRange* pRange,
-                                                  TF_DISPLAYATTRIBUTE* pda,
-                                                  TfGuidAtom* pguid,
-                                                  ULONG ulNumProp);
+    [[nodiscard]] HRESULT GetDisplayAttributeTrackPropertyRange(TfEditCookie ec, ITfContext* pic, ITfRange* pRange, ITfReadOnlyProperty** ppProp, IEnumTfRanges** ppEnum, ULONG* pulNumProp);
+    [[nodiscard]] HRESULT GetDisplayAttributeData(ITfCategoryMgr* pcat, TfEditCookie ec, ITfReadOnlyProperty* pProp, ITfRange* pRange, TF_DISPLAYATTRIBUTE* pda, TfGuidAtom* pguid, ULONG ulNumProp);
     [[nodiscard]] HRESULT InitDisplayAttributeInstance(ITfCategoryMgr* pcat);
-
-    inline ITfDisplayAttributeMgr* GetDisplayAttributeMgr() { return m_pDAM.get(); }
+    ITfDisplayAttributeMgr* GetDisplayAttributeMgr();
 
 private:
     wil::com_ptr_nothrow<ITfDisplayAttributeMgr> m_pDAM;
