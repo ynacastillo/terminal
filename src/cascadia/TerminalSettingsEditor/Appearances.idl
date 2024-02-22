@@ -64,6 +64,7 @@ namespace Microsoft.Terminal.Settings.Editor
         IHostedInWindow WindowRoot;
         static Windows.UI.Xaml.DependencyProperty AppearanceProperty { get; };
 
+        Windows.Foundation.Collections.IVector<Font> FontList { get; };
         Boolean UsingMonospaceFont { get; };
         Boolean ShowAllFonts;
         Boolean ShowProportionalFontWarning;
@@ -82,7 +83,6 @@ namespace Microsoft.Terminal.Settings.Editor
         Boolean IsCustomFontWeight { get; };
         Windows.Foundation.Collections.IObservableVector<Microsoft.Terminal.Settings.Editor.EnumEntry> FontWeightList { get; };
 
-        IInspectable CurrentFontFace { get; };
         Windows.UI.Xaml.Controls.Slider BIOpacitySlider { get; };
 
         IInspectable CurrentIntenseTextStyle;

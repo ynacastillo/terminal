@@ -25,22 +25,14 @@ Author(s):
 
 namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
 {
-    struct FontComparator
-    {
-        bool operator()(const Font& lhs, const Font& rhs) const
-        {
-            return lhs.LocalizedName() < rhs.LocalizedName();
-        }
-    };
-
     struct Font : FontT<Font>
     {
     public:
-        Font(std::wstring name, std::wstring localizedName, IDWriteFontFamily* family) :
-            _Name{ name },
-            _LocalizedName{ localizedName }
+        Font(winrt::hstring name, winrt::hstring localizedName, wil::com_ptr<IDWriteFontFamily> family) :
+            _Name{ std::move(name) },
+            _LocalizedName{ std::move(localizedName) },
+            _family{ std::move(family) }
         {
-            _family.copy_from(family);
         }
 
         hstring ToString() { return _LocalizedName; }
@@ -50,7 +42,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         WINRT_PROPERTY(hstring, LocalizedName);
 
     private:
-        winrt::com_ptr<IDWriteFontFamily> _family;
+        wil::com_ptr<IDWriteFontFamily> _family;
         std::optional<bool> _hasPowerlineCharacters;
     };
 
@@ -112,19 +104,18 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
     public:
         Appearances();
 
-        // font face
-        Windows::Foundation::IInspectable CurrentFontFace() const;
-
         // CursorShape visibility logic
         bool IsVintageCursor() const;
 
+        Windows::Foundation::Collections::IVector<Editor::Font> FontList() const;
         bool UsingMonospaceFont() const noexcept;
         bool ShowAllFonts() const noexcept;
-        void ShowAllFonts(const bool& value);
+        void ShowAllFonts(bool value);
 
+        void FontFaceBox_TextChanged(winrt::Windows::UI::Xaml::Controls::AutoSuggestBox, winrt::Windows::UI::Xaml::Controls::AutoSuggestBoxTextChangedEventArgs);
+        void FontFaceBox_SuggestionChosen(winrt::Windows::UI::Xaml::Controls::AutoSuggestBox, winrt::Windows::UI::Xaml::Controls::AutoSuggestBoxSuggestionChosenEventArgs);
         fire_and_forget BackgroundImage_Click(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
         void BIAlignment_Click(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
-        void FontFace_SelectionChanged(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::Controls::SelectionChangedEventArgs& e);
 
         // manually bind FontWeight
         Windows::Foundation::IInspectable CurrentFontWeight() const;

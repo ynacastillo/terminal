@@ -274,6 +274,11 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         INITIALIZE_BINDABLE_ENUM_SETTING(IntenseTextStyle, IntenseTextStyle, winrt::Microsoft::Terminal::Settings::Model::IntenseStyle, L"Appearance_IntenseTextStyle", L"Content");
     }
 
+    IVector<Editor::Font> Appearances::FontList() const
+    {
+        return ShowAllFonts() ? ProfileViewModel::CompleteFontList() : ProfileViewModel::MonospaceFontList();
+    }
+
     // Method Description:
     // - Searches through our list of monospace fonts to determine if the settings model's current font face is a monospace font
     bool Appearances::UsingMonospaceFont() const noexcept
@@ -282,7 +287,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         const auto currentFont{ Appearance().FontFace() };
         for (const auto& font : ProfileViewModel::MonospaceFontList())
         {
-            if (font.LocalizedName() == currentFont)
+            if (font.Name() == currentFont)
             {
                 result = true;
             }
@@ -294,12 +299,10 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
     // - Determines whether we should show the list of all the fonts, or we should just show monospace fonts
     bool Appearances::ShowAllFonts() const noexcept
     {
-        // - _ShowAllFonts is directly bound to the checkbox. So this is the user set value.
-        // - If we are not using a monospace font, show all of the fonts so that the ComboBox is still properly bound
         return _ShowAllFonts || !UsingMonospaceFont();
     }
 
-    void Appearances::ShowAllFonts(const bool& value)
+    void Appearances::ShowAllFonts(const bool value)
     {
         if (_ShowAllFonts != value)
         {
@@ -308,28 +311,48 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         }
     }
 
-    IInspectable Appearances::CurrentFontFace() const
+    void Appearances::FontFaceBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
-        const auto& appearanceVM{ Appearance() };
-        const auto appearanceFontFace{ appearanceVM.FontFace() };
-        return box_value(ProfileViewModel::FindFontWithLocalizedName(appearanceFontFace));
+        if (args.Reason() == AutoSuggestionBoxTextChangeReason::UserInput)
+        {
+            sender.ItemsSource(ProfileViewModel::MonospaceFontList());
+        }
     }
 
-    void Appearances::FontFace_SelectionChanged(const IInspectable& /*sender*/, const SelectionChangedEventArgs& e)
+    void Appearances::FontFaceBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
     {
-        // NOTE: We need to hook up a selection changed event handler here instead of directly binding to the appearance view model.
-        //       A two way binding to the view model causes an infinite loop because both combo boxes keep fighting over which one's right.
-        const auto selectedItem{ e.AddedItems().GetAt(0) };
-        const auto newFontFace{ unbox_value<Editor::Font>(selectedItem) };
-        Appearance().FontFace(newFontFace.LocalizedName());
-        if (!UsingMonospaceFont())
+        const auto font = unbox_value<Editor::Font>(args.SelectedItem());
+        const auto fontName = font.Name();
+        auto fontSpec = sender.Text();
+
+        const std::wstring_view fontSpecView{ fontSpec };
+        if (const auto idx = fontSpecView.rfind(L','); idx != std::wstring_view::npos)
         {
-            ShowProportionalFontWarning(true);
+            const auto prefix = fontSpecView.substr(0, idx);
+            const auto suffix = std::wstring_view{ fontName };
+            fontSpec = winrt::hstring{ fmt::format(FMT_COMPILE(L"{}, {}"), prefix, suffix) };
         }
         else
         {
-            ShowProportionalFontWarning(false);
+            fontSpec = fontName;
         }
+
+        Appearance().FontFace(fontSpec);
+        sender.Text(fontSpec);
+
+        // NOTE: We need to hook up a selection changed event handler here instead of directly binding to the appearance view model.
+        //       A two way binding to the view model causes an infinite loop because both combo boxes keep fighting over which one's right.
+        //const auto selectedItem{ e.AddedItems().GetAt(0) };
+        //const auto newFontFace{ unbox_value<Editor::Font>(selectedItem) };
+        //Appearance().FontFace(newFontFace.Name());
+        //if (!UsingMonospaceFont())
+        //{
+        //    ShowProportionalFontWarning(true);
+        //}
+        //else
+        //{
+        //    ShowProportionalFontWarning(false);
+        //}
     }
 
     void Appearances::_ViewModelChanged(const DependencyObject& d, const DependencyPropertyChangedEventArgs& /*args*/)
@@ -372,15 +395,12 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
                     _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontWeight" });
                     _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"IsCustomFontWeight" });
                 }
-                else if (settingName == L"FontFace" || settingName == L"CurrentFontList")
+                else if (settingName == L"FontFace")
                 {
-                    // notify listener that all font face related values might have changed
-                    if (!UsingMonospaceFont())
-                    {
+                    if (!_ShowAllFonts && !UsingMonospaceFont()) {
                         _ShowAllFonts = true;
+                        _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"ShowAllFonts" });
                     }
-                    _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontFace" });
-                    _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"ShowAllFonts" });
                     _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"UsingMonospaceFont" });
                 }
                 else if (settingName == L"IntenseTextStyle")
@@ -421,7 +441,6 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
             _UpdateBIAlignmentControl(static_cast<int32_t>(Appearance().BackgroundImageAlignment()));
             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontWeight" });
             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"IsCustomFontWeight" });
-            _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontFace" });
             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"ShowAllFonts" });
             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"UsingMonospaceFont" });
             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentIntenseTextStyle" });

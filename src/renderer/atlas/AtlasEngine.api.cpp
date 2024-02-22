@@ -264,7 +264,7 @@ try
     }
 #endif
 
-    _resolveFontMetrics(nullptr, fontInfoDesired, fontInfo);
+    _resolveFontMetrics(fontInfoDesired, fontInfo);
     return S_OK;
 }
 CATCH_RETURN()
@@ -426,7 +426,7 @@ void AtlasEngine::SetSoftwareRendering(bool enable) noexcept
     }
 }
 
-void AtlasEngine::SetWarningCallback(std::function<void(HRESULT)> pfn) noexcept
+void AtlasEngine::SetWarningCallback(std::function<void(HRESULT, wil::zwstring_view)> pfn) noexcept
 {
     _p.warningCallback = std::move(pfn);
 }
@@ -457,29 +457,7 @@ void AtlasEngine::SetWarningCallback(std::function<void(HRESULT)> pfn) noexcept
 {
     try
     {
-        _updateFont(fontInfoDesired.GetFaceName().c_str(), fontInfoDesired, fontInfo, features, axes);
-        return S_OK;
-    }
-    CATCH_LOG();
-
-    if constexpr (Feature_NearbyFontLoading::IsEnabled())
-    {
-        try
-        {
-            // _resolveFontMetrics() checks `_api.s->font->fontCollection` for a pre-existing font collection,
-            // before falling back to using the system font collection. This way we can inject our custom one. See GH#9375.
-            // Doing it this way is a bit hacky, but it does have the benefit that we can cache a font collection
-            // instance across font changes, like when zooming the font size rapidly using the scroll wheel.
-            _api.s.write()->font.write()->fontCollection = FontCache::GetCached();
-            _updateFont(fontInfoDesired.GetFaceName().c_str(), fontInfoDesired, fontInfo, features, axes);
-            return S_OK;
-        }
-        CATCH_LOG();
-    }
-
-    try
-    {
-        _updateFont(nullptr, fontInfoDesired, fontInfo, features, axes);
+        _updateFont(fontInfoDesired, fontInfo, features, axes);
         return S_OK;
     }
     CATCH_RETURN();
@@ -511,7 +489,7 @@ void AtlasEngine::_resolveTransparencySettings() noexcept
     }
 }
 
-void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes)
+void AtlasEngine::_updateFont(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes)
 {
     std::vector<DWRITE_FONT_FEATURE> fontFeatures;
     if (!features.empty())
@@ -588,21 +566,22 @@ void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fo
     }
 
     const auto font = _api.s.write()->font.write();
-    _resolveFontMetrics(faceName, fontInfoDesired, fontInfo, font);
+    _resolveFontMetrics(fontInfoDesired, fontInfo, font);
     font->fontFeatures = std::move(fontFeatures);
     font->fontAxisValues = std::move(fontAxisValues);
 }
 
-void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, FontSettings* fontMetrics) const
+void AtlasEngine::_resolveFontMetrics(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, FontSettings* fontMetrics) const
 {
+    std::wstring_view remainingFaceNames{ fontInfoDesired.GetFaceName() };
     const auto requestedFamily = fontInfoDesired.GetFamily();
     auto requestedWeight = fontInfoDesired.GetWeight();
     auto fontSize = fontInfoDesired.GetFontSize();
     auto requestedSize = fontInfoDesired.GetEngineSize();
 
-    if (!requestedFaceName)
+    if (remainingFaceNames.empty())
     {
-        requestedFaceName = L"Consolas";
+        remainingFaceNames = L"Consolas";
     }
     if (!requestedSize.height)
     {
@@ -624,22 +603,92 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
         THROW_IF_FAILED(_p.dwriteFactory->GetSystemFontCollection(fontCollection.addressof(), FALSE));
     }
 
-    u32 index = 0;
-    BOOL exists = false;
-    THROW_IF_FAILED(fontCollection->FindFamilyName(requestedFaceName, &index, &exists));
-    THROW_HR_IF(DWRITE_E_NOFONT, !exists);
+    std::wstring primaryFontName{ til::trim(til::prefix_split(remainingFaceNames, L','), L' ') };
+    wil::com_ptr<IDWriteFontFace> primaryFontFace;
+    {
+        u32 index = 0;
+        BOOL exists = false;
+        THROW_IF_FAILED(fontCollection->FindFamilyName(primaryFontName.c_str(), &index, &exists));
 
-    wil::com_ptr<IDWriteFontFamily> fontFamily;
-    THROW_IF_FAILED(fontCollection->GetFontFamily(index, fontFamily.addressof()));
+        if constexpr (Feature_NearbyFontLoading::IsEnabled())
+        {
+            // _resolveFontMetrics() checks `_api.s->font->fontCollection` for a pre-existing font collection,
+            // before falling back to using the system font collection. This way we can inject our custom one. See GH#9375.
+            // Doing it this way is a bit hacky, but it does have the benefit that we can cache a font collection
+            // instance across font changes, like when zooming the font size rapidly using the scroll wheel.
+            if (!exists)
+            {
+                fontCollection = FontCache::GetCached();
+                THROW_IF_FAILED(fontCollection->FindFamilyName(primaryFontName.c_str(), &index, &exists));
+            }
+        }
 
-    wil::com_ptr<IDWriteFont> font;
-    THROW_IF_FAILED(fontFamily->GetFirstMatchingFont(static_cast<DWRITE_FONT_WEIGHT>(requestedWeight), DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.addressof()));
+        if (!exists)
+        {
+            _p.warningCallback(DWRITE_E_NOFONT, primaryFontName);
 
-    wil::com_ptr<IDWriteFontFace> fontFace;
-    THROW_IF_FAILED(font->CreateFontFace(fontFace.addressof()));
+            primaryFontName = L"Consolas";
+            THROW_IF_FAILED(fontCollection->FindFamilyName(primaryFontName.c_str(), &index, &exists));
+            THROW_HR_IF(DWRITE_E_NOFONT, !exists);
+        }
+
+        wil::com_ptr<IDWriteFontFamily> fontFamily;
+        THROW_IF_FAILED(fontCollection->GetFontFamily(index, fontFamily.addressof()));
+
+        wil::com_ptr<IDWriteFont> font;
+        THROW_IF_FAILED(fontFamily->GetFirstMatchingFont(static_cast<DWRITE_FONT_WEIGHT>(requestedWeight), DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.addressof()));
+
+        THROW_IF_FAILED(font->CreateFontFace(primaryFontFace.addressof()));
+    }
+
+    auto fontFallback = _api.systemFontFallback;
+    if (!remainingFaceNames.empty())
+    {
+        wil::com_ptr<IDWriteFontFallbackBuilder> builder;
+        THROW_IF_FAILED(_p.dwriteFactory->CreateFontFallbackBuilder(builder.addressof()));
+        bool builderIsNonEmpty = false;
+
+        do
+        {
+            const std::wstring secondaryFontName{ til::trim(til::prefix_split(remainingFaceNames, L','), L' ') };
+            if (secondaryFontName.empty())
+            {
+                continue;
+            }
+
+            u32 index = 0;
+            BOOL exists = false;
+            THROW_IF_FAILED(fontCollection->FindFamilyName(secondaryFontName.c_str(), &index, &exists));
+            if (!exists)
+            {
+                _p.warningCallback(DWRITE_E_NOFONT, secondaryFontName);
+                continue;
+            }
+
+            static constexpr DWRITE_UNICODE_RANGE fullRange{ 0, 0x10FFFF };
+            auto fontName = secondaryFontName.c_str();
+            THROW_IF_FAILED(builder->AddMapping(
+                /* ranges                 */ &fullRange,
+                /* rangesCount            */ 1,
+                /* targetFamilyNames      */ &fontName,
+                /* targetFamilyNamesCount */ 1,
+                /* fontCollection         */ fontCollection.get(),
+                /* localeName             */ nullptr,
+                /* baseFamilyName         */ nullptr,
+                /* scale                  */ 1.0f));
+
+            builderIsNonEmpty = true;
+        } while (!remainingFaceNames.empty());
+
+        if (builderIsNonEmpty)
+        {
+            THROW_IF_FAILED(builder->AddMappings(_api.systemFontFallback.get()));
+            THROW_IF_FAILED(builder->CreateFontFallback(fontFallback.put()));
+        }
+    }
 
     DWRITE_FONT_METRICS metrics{};
-    fontFace->GetMetrics(&metrics);
+    primaryFontFace->GetMetrics(&metrics);
 
     // Point sizes are commonly treated at a 72 DPI scale
     // (including by OpenType), whereas DirectWrite uses 96 DPI.
@@ -665,12 +714,12 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
         static constexpr u32 codePoint = '0';
 
         u16 glyphIndex;
-        THROW_IF_FAILED(fontFace->GetGlyphIndicesW(&codePoint, 1, &glyphIndex));
+        THROW_IF_FAILED(primaryFontFace->GetGlyphIndicesW(&codePoint, 1, &glyphIndex));
 
         if (glyphIndex)
         {
             DWRITE_GLYPH_METRICS glyphMetrics{};
-            THROW_IF_FAILED(fontFace->GetDesignGlyphMetrics(&glyphIndex, 1, &glyphMetrics, FALSE));
+            THROW_IF_FAILED(primaryFontFace->GetDesignGlyphMetrics(&glyphIndex, 1, &glyphMetrics, FALSE));
             advanceWidth = static_cast<f32>(glyphMetrics.advanceWidth) * designUnitsPerPx;
         }
     }
@@ -728,12 +777,11 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
             requestedSize.width = gsl::narrow_cast<til::CoordType>(lrintf(fontSize / cellHeight * cellWidth));
         }
 
-        fontInfo.SetFromEngine(requestedFaceName, requestedFamily, requestedWeight, false, coordSize, requestedSize);
+        fontInfo.SetFromEngine(primaryFontName, requestedFamily, requestedWeight, false, coordSize, requestedSize);
     }
 
     if (fontMetrics)
     {
-        std::wstring fontName{ requestedFaceName };
         const auto fontWeightU16 = gsl::narrow_cast<u16>(requestedWeight);
         const auto advanceWidthU16 = gsl::narrow_cast<u16>(lrintf(advanceWidth));
         const auto baselineU16 = gsl::narrow_cast<u16>(lrintf(baseline));
@@ -754,8 +802,9 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
         // as we might cause _api to be in an inconsistent state otherwise.
 
         fontMetrics->fontCollection = std::move(fontCollection);
-        fontMetrics->fontFamily = std::move(fontFamily);
-        fontMetrics->fontName = std::move(fontName);
+        fontMetrics->fontFallback = std::move(fontFallback);
+        fontMetrics->fontFallback.try_query_to(fontMetrics->fontFallback1.put());
+        fontMetrics->fontName = std::move(primaryFontName);
         fontMetrics->fontSize = fontSizeInPx;
         fontMetrics->cellSize = { cellWidth, cellHeight };
         fontMetrics->fontWeight = fontWeightU16;

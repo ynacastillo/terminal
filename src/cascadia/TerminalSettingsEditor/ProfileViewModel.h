@@ -8,7 +8,6 @@
 #include "ProfileViewModel.g.h"
 #include "Utils.h"
 #include "ViewModelHelpers.h"
-#include "Appearances.h"
 
 namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
 {
@@ -32,8 +31,8 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
     public:
         // font face
         static void UpdateFontList() noexcept;
-        static Windows::Foundation::Collections::IObservableVector<Editor::Font> CompleteFontList() noexcept { return _FontList; };
-        static Windows::Foundation::Collections::IObservableVector<Editor::Font> MonospaceFontList() noexcept { return _MonospaceFontList; };
+        static Windows::Foundation::Collections::IVector<Editor::Font> CompleteFontList() noexcept { return _FontList; };
+        static Windows::Foundation::Collections::IVector<Editor::Font> MonospaceFontList() noexcept { return _MonospaceFontList; };
         static Editor::Font FindFontWithLocalizedName(winrt::hstring const& name) noexcept;
 
         ProfileViewModel(const Model::Profile& profile, const Model::CascadiaSettings& settings);
@@ -121,8 +120,8 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
         winrt::hstring _lastStartingDirectoryPath;
         Editor::AppearanceViewModel _defaultAppearanceViewModel;
 
-        static Windows::Foundation::Collections::IObservableVector<Editor::Font> _MonospaceFontList;
-        static Windows::Foundation::Collections::IObservableVector<Editor::Font> _FontList;
+        static Windows::Foundation::Collections::IVector<Editor::Font> _MonospaceFontList;
+        static Windows::Foundation::Collections::IVector<Editor::Font> _FontList;
 
         Model::CascadiaSettings _appSettings;
         Editor::AppearanceViewModel _unfocusedAppearanceViewModel;
